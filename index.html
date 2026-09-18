@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="在浏览器本地完成序列图与 GIF 转换" />
+    <title>PicCave</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark"><i data-lucide="clapperboard"></i></div>
+          <div>
+            <h1>PicCave</h1>
+          </div>
+        </div>
+        <div class="header-meta">
+          <div class="local-badge"><i data-lucide="shield-check"></i><span>文件仅在本机处理</span></div>
+          <div class="runtime-state" id="runtime-state">
+            <span class="state-dot"></span>
+            <span>运行时待加载</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <aside class="main-sidebar" aria-label="功能菜单">
+          <div class="sidebar-section-label">工具</div>
+          <button class="module-nav is-active" type="button" data-module="converter" aria-current="page">
+            <i data-lucide="repeat-2"></i>
+            <span>序列图与 GIF 转换</span>
+          </button>
+          <button class="module-nav" type="button" data-module="batch">
+            <i data-lucide="layout-grid"></i>
+            <span>图片批量转换</span>
+          </button>
+          <div class="sidebar-spacer"></div>
+          <div class="sidebar-local"><i data-lucide="hard-drive"></i><span>本地工作区</span></div>
+        </aside>
+
+        <div class="content-shell">
+          <nav class="tabs" aria-label="转换模块">
+            <button class="tab is-active" data-tab="sequence"><i data-lucide="images"></i>序列图 → GIF</button>
+            <button class="tab" data-tab="extract"><i data-lucide="file-output"></i>GIF → 序列图</button>
+          </nav>
+
+          <main>
+        <section class="workspace is-active" id="sequence-workspace">
+          <aside class="file-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow">素材</span>
+                <h2>序列帧</h2>
+                <span id="file-count">0 帧</span>
+              </div>
+              <button class="icon-button" id="clear-files" title="清空序列" disabled><i data-lucide="trash-2"></i></button>
+            </div>
+            <div class="drop-zone" id="sequence-drop" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false">
+              <input id="sequence-input" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff" multiple />
+              <input id="sequence-folder-input" type="file" accept="image/*" webkitdirectory directory multiple />
+              <i data-lucide="upload"></i>
+              <strong>添加序列图或文件夹</strong>
+              <span>点击选择，或直接拖放到这里</span>
+              <div class="source-menu" id="sequence-source-menu" role="menu" hidden>
+                <button type="button" id="choose-sequence-files" role="menuitem"><i data-lucide="images"></i><span><b>选择序列图片</b><small>多选需要的图片</small></span></button>
+                <button type="button" id="choose-sequence-folder" role="menuitem"><i data-lucide="folder-open"></i><span><b>选择序列文件夹</b><small>自动载入并按名称排序</small></span></button>
+              </div>
+            </div>
+            <div class="file-list" id="file-list"><div class="empty-list">尚未添加图片</div></div>
+          </aside>
+
+          <section class="editor-panel">
+            <section class="preview-pane">
+              <div class="pane-heading">
+                <div>
+                  <span class="eyebrow">编辑</span>
+                  <h2>画面预览</h2>
+                </div>
+                <div class="crop-hint"><i data-lucide="scan"></i>拖动选区或四角调整裁剪</div>
+              </div>
+
+              <div class="preview-toolbar">
+                <div class="transport-controls">
+                  <button class="icon-tool" id="prev-frame" title="上一帧" disabled><i data-lucide="step-back"></i></button>
+                  <button class="play-button" id="play-toggle" disabled><i data-lucide="play"></i><span>播放</span></button>
+                  <button class="icon-tool" id="next-frame" title="下一帧" disabled><i data-lucide="step-forward"></i></button>
+                </div>
+                <label class="fps-control"><span>预览 FPS</span><input id="preview-fps" type="number" value="24" min="1" max="120" /></label>
+                <span class="frame-indicator" id="frame-indicator">0 / 0</span>
+              </div>
+
+              <div class="canvas-shell" id="canvas-shell">
+                <canvas id="preview-canvas" width="800" height="500"></canvas>
+                <div class="canvas-empty" id="canvas-empty"><i data-lucide="image-plus"></i><strong>还没有画面</strong><span>从左侧添加序列图片</span></div>
+              </div>
+
+              <div class="timeline-row">
+                <span>01</span><input class="timeline" id="timeline" type="range" min="1" max="1" value="1" disabled /><span>END</span>
+              </div>
+
+              <div class="edit-controls">
+                <div class="edit-block">
+                  <div class="edit-title"><i data-lucide="between-horizontal-start"></i><span>截取帧范围</span></div>
+                  <div class="inline-fields">
+                    <label><span>从</span><input id="start-frame" type="number" value="1" min="1" disabled /></label>
+                    <button class="small-button" id="set-start" disabled>当前帧</button>
+                    <label><span>到</span><input id="end-frame" type="number" value="1" min="1" disabled /></label>
+                    <button class="small-button" id="set-end" disabled>当前帧</button>
+                  </div>
+                </div>
+                <div class="edit-block crop-values">
+                  <div class="edit-title"><i data-lucide="crop"></i><span>裁剪区域</span></div>
+                  <div class="crop-field-grid">
+                    <label><span>X</span><input id="crop-x" type="number" value="0" min="0" disabled /></label>
+                    <label><span>Y</span><input id="crop-y" type="number" value="0" min="0" disabled /></label>
+                    <label><span>宽</span><input id="crop-width" type="number" value="0" min="1" disabled /></label>
+                    <label><span>高</span><input id="crop-height" type="number" value="0" min="1" disabled /></label>
+                    <button class="small-button accent" id="apply-crop-values" disabled>应用</button>
+                    <button class="small-button" id="reset-crop" disabled>重置</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <aside class="settings-pane">
+              <div class="settings-section">
+                <h3>裁剪边界尺寸</h3>
+                <div class="dimension-row">
+                  <label><span>宽度</span><input id="output-width" type="number" value="0" min="1" max="16384" readonly /></label>
+                  <span class="dimension-x">×</span>
+                  <label><span>高度</span><input id="output-height" type="number" value="0" min="1" max="16384" readonly /></label>
+                </div>
+                <div class="resolution-setting">
+                  <label><span>输出分辨率</span><select id="resolution-scale"><option value="25">25%</option><option value="50">50%</option><option value="75">75%</option><option value="100" selected>100%</option><option value="125">125%</option><option value="150">150%</option><option value="200">200%</option></select></label>
+                  <span class="resolution-result" id="resolution-result">0 × 0 px</span>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <h3>动画</h3>
+                <div class="settings-grid">
+                  <label><span>GIF 帧率</span><input id="output-fps" type="number" value="30" min="0.1" max="120" step="1" /></label>
+                  <label><span>循环方式</span><select id="loop-mode"><option value="0">无限循环</option><option value="1">播放一次</option></select></label>
+                </div>
+                <div class="range-summary">
+                  <span><i data-lucide="film"></i>输出帧范围</span>
+                  <strong id="output-frame-range">未设置</strong>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <h3>色彩与透明</h3>
+                <div class="settings-grid">
+                  <label><span>色彩数</span><select id="color-count"><option>256</option><option>128</option><option>64</option><option>32</option></select></label>
+                  <label><span>透明处理</span><select id="transparency-mode"><option value="dither">透明抖动</option><option value="threshold">硬阈值</option></select></label>
+                  <label class="wide-setting"><span>抖动强度 <b id="strength-display">80%</b></span><input class="setting-range" id="dither-strength" type="range" value="80" min="0" max="100" /></label>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <h3>压缩</h3>
+                <label class="select-setting"><span>压缩预设</span><select id="compression-preset"><option value="0">无损优化</option><option value="30">轻度压缩</option><option value="60">均衡压缩</option><option value="100">强力压缩</option></select></label>
+              </div>
+
+              <div class="export-panel">
+                <div class="result-info" id="sequence-result">等待添加序列图片</div>
+                <div class="step-actions">
+                  <button class="command-button" id="raw-preview" disabled><span class="step-number">1</span><span>计算大小</span></button>
+                  <button class="command-button" id="compressed-preview" disabled><span class="step-number">2</span><span>压缩预览</span></button>
+                </div>
+                <button class="export-button" id="export-gif" disabled><i data-lucide="download"></i><span>导出 GIF</span></button>
+              </div>
+            </aside>
+          </section>
+        </section>
+
+        <section class="workspace extract-workspace" id="extract-workspace">
+          <div class="extract-intro">
+            <span class="eyebrow">批量提取</span>
+            <h2>GIF 转序列图</h2>
+            <p>将 GIF 的每一帧解码为独立图片，并打包成一个 ZIP 文件。</p>
+          </div>
+          <div class="extract-flow">
+            <label class="drop-zone extract-drop" id="gif-drop">
+              <input id="gif-input" type="file" accept="image/gif" />
+              <span class="drop-icon"><i data-lucide="file-up"></i></span>
+              <strong>将 GIF 拖到这里</strong>
+              <span>或点击选择文件</span>
+            </label>
+            <div class="extract-details">
+              <div class="file-summary" id="gif-summary"><i data-lucide="file-question"></i><span>尚未选择 GIF</span></div>
+              <div class="settings-grid extract-settings">
+                <label><span>图片格式</span><select id="extract-format"><option value="PNG">PNG</option><option value="WEBP">WebP</option><option value="JPG">JPG</option></select></label>
+                <label><span>输出质量</span><input id="extract-quality" type="number" value="92" min="1" max="100" /></label>
+              </div>
+              <div class="toggle-list">
+                <label class="check-label"><input id="extract-timing" type="checkbox" checked /><span>保存每帧时间信息</span></label>
+                <label class="check-label"><input id="extract-white" type="checkbox" checked /><span>透明区域使用白色</span></label>
+              </div>
+              <div class="extract-actions">
+                <div class="result-info" id="extract-result">等待选择 GIF</div>
+                <button class="export-button" id="extract-button" disabled><i data-lucide="archive"></i><span>导出序列图 ZIP</span></button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="blank-workspace" id="batch-workspace" aria-label="图片批量转换"></section>
+          </main>
+
+          <footer class="status-bar">
+            <span id="status-text">就绪</span>
+            <progress id="progress" max="100" value="0"></progress>
+          </footer>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
