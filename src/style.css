@@ -53,15 +53,26 @@ svg { stroke-width: 1.8; }
 .sidebar-local { padding: 11px 12px; display: flex; align-items: center; gap: 8px; border-top: 1px solid #d3c6bc; color: #817166; font-size: 10px; }
 .sidebar-local svg { width: 14px; height: 14px; }
 .content-shell { min-width: 0; min-height: 0; display: grid; grid-template-rows: 49px minmax(0, 1fr) 31px; }
-/* 注意：批处理模式下 .tabs 被设为 display:none，它会完全脱离 grid 流，
+/* 注意：批处理 / 精灵图这类独立模块模式下 .tabs 被设为 display:none，它会完全脱离 grid 流，
    因此这里只定义两行并显式指定各自的行号，避免自动排布把 main 挤到 0 高度。 */
-.content-shell.is-batch { grid-template-rows: minmax(0,1fr) 31px; }
-.content-shell.is-batch .tabs { display: none; }
-.content-shell.is-batch .workspace { display: none; }
-.content-shell.is-batch main { grid-row: 1; display: grid; min-height: 0; background: #f7f2ed; }
-.content-shell.is-batch .status-bar { grid-row: 2; }
-.batch-workspace { display: none; min-width: 0; min-height: 0; }
-.content-shell.is-batch .batch-workspace { display: grid; grid-template-columns: 244px minmax(0, 1fr); }
+.content-shell.is-batch,
+.content-shell.is-sprite { grid-template-rows: minmax(0,1fr) 31px; }
+.content-shell.is-batch .tabs,
+.content-shell.is-sprite .tabs { display: none; }
+.content-shell.is-batch .workspace,
+.content-shell.is-sprite .workspace { display: none; }
+.content-shell.is-batch main,
+.content-shell.is-sprite main { grid-row: 1; display: grid; min-height: 0; background: #f7f2ed; }
+.content-shell.is-batch .status-bar,
+.content-shell.is-sprite .status-bar { grid-row: 2; }
+.batch-workspace,
+.sprite-workspace { display: none; min-width: 0; min-height: 0; }
+/* 高度必须钉住：#app 用的是 min-height:100vh，minmax(0,1fr) 行会被内容撑开，
+   素材多时整页被拉高、左栏列表的 overflow-y 永不生效，底部按钮被推出视口。
+   与 .workspace.is-active 的 calc(100vh - 146px) 同源，这里的 97 = 头部 66 + 状态栏 31（无主标签页）。
+   窄屏下 #app 改用 auto 行，故在 860px 断点里改回 height:auto。 */
+.content-shell.is-batch .batch-workspace,
+.content-shell.is-sprite .sprite-workspace { display: grid; height: calc(100vh - 97px); grid-template-columns: 244px minmax(0, 1fr); }
 
 .tabs { display: flex; align-items: stretch; padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .tab { position: relative; min-width: 175px; padding: 0 16px; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: #6e6056; cursor: pointer; font-size: 13px; font-weight: 650; }
@@ -182,22 +193,30 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
 .export-button:hover:not(:disabled) { background: var(--green-dark); }
 .export-button svg { width: 17px; height: 17px; }
 
-.extract-workspace.is-active { display: block; height: calc(100vh - 146px); overflow-y: auto; padding: 34px clamp(22px,5vw,72px); background: #f7f2ed; }
-.extract-intro { max-width: 760px; margin: 0 auto 20px; }
-.extract-intro h2 { margin: 4px 0 6px; font-size: 22px; letter-spacing: 0; }
-.extract-intro p { margin: 0; color: var(--muted); font-size: 12px; }
-.extract-flow { max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: minmax(260px,.9fr) minmax(320px,1.1fr); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; box-shadow: 0 8px 28px #3a24180d; }
-.extract-drop { min-height: 370px; border: 0; border-right: 1px dashed #c8b6a9; border-radius: 0; background: var(--surface-soft); }
-.drop-icon { width: 50px; height: 50px; margin-bottom: 6px; display: grid; place-items: center; border-radius: 50%; color: var(--green); background: var(--green-soft); }
-.drop-icon svg { width: 24px; height: 24px; }
-.extract-details { min-width: 0; padding: 27px 25px; display: flex; flex-direction: column; }
-.file-summary { min-height: 53px; padding: 0 0 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); color: #5e4e44; font-size: 12px; overflow-wrap: anywhere; }
-.file-summary svg { flex: 0 0 auto; width: 19px; height: 19px; color: var(--quiet); }
-.extract-settings { margin-top: 19px; }
-.toggle-list { margin-top: 17px; display: grid; gap: 9px; }
+/* extract 模块复用 .workspace.is-active 的两栏网格：左素材列 / 右操作区。
+   注意：不要再写 .extract-workspace.is-active { display: block } —— 那会让左栏整列失效。 */
+.extract-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto; background: #f7f2ed; }
+.extract-head { padding: 20px 22px 0; }
+.extract-head h2 { margin: 4px 0 6px; font-size: 20px; letter-spacing: 0; }
+.extract-head p { margin: 0; color: var(--muted); font-size: 12px; }
+.extract-body { min-height: 0; overflow-y: auto; padding: 18px 22px; }
+.extract-card { width: min(100%, 820px); padding: 20px 22px; display: grid; gap: 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.extract-settings { margin: 0; }
+.extract-naming-field { grid-column: 1 / -1; }
+.naming-list { display: grid; gap: 9px; padding-top: 13px; border-top: 1px dashed var(--line); }
+.naming-list[hidden] { display: none; }
+.naming-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(150px,230px); align-items: center; gap: 12px; }
+.naming-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.naming-input { min-height: 30px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); color: var(--ink); font-size: 12px; }
+.naming-input:focus { border-color: var(--green); outline: none; }
+.extract-drop { min-height: 92px; gap: 3px; }
+.extract-drop > svg { width: 20px; height: 20px; }
+.extract-footer { padding: 13px 22px; display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line); background: var(--surface-warm); }
+.extract-footer .result-info { flex: 1; min-width: 140px; }
+.extract-footer .export-button { width: auto; min-width: 196px; }
+.toggle-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
 .check-label { display: flex; align-items: center; gap: 8px; color: #665449; font-size: 11px; cursor: pointer; }
 .check-label input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); }
-.extract-actions { margin-top: auto; padding-top: 25px; }
 
 .status-bar { min-height: 31px; padding: 0 14px; display: flex; align-items: center; gap: 13px; background: #33261f; color: #eee4dc; font-size: 10px; }
 .status-bar span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -233,7 +252,9 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
   .settings-section { min-height: 124px; }
   .export-panel { display: grid; grid-template-columns: minmax(150px,1fr) minmax(220px,1.2fr); gap: 8px 12px; align-items: center; }
   .export-panel .result-info { grid-column: 1 / -1; }
-  .extract-workspace.is-active { height: auto; min-height: calc(100vh - 139px); }
+  /* 窄屏下 .workspace.is-active 变成 block，extract-main 高度改由内容决定，
+     行高不再受 1fr 约束，需要放开滚动容器，否则内容会被压扁。 */
+  .extract-body { overflow: visible; }
 }
 
 @media (max-width: 600px) {
@@ -269,28 +290,35 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
   .settings-section { min-height: 0; }
   .export-panel { display: block; }
   .step-actions { margin-top: 7px; }
-  .extract-workspace.is-active { padding: 22px 12px; }
-  .extract-intro h2 { font-size: 19px; }
-  .extract-flow { display: block; }
-  .extract-drop { min-height: 190px; border-right: 0; border-bottom: 1px dashed #c8b6a9; }
-  .extract-details { min-height: 330px; padding: 21px 17px; }
+  .extract-head { padding: 16px 13px 0; }
+  .extract-head h2 { font-size: 18px; }
+  .extract-body { padding: 14px 13px; }
+  .extract-card { padding: 15px 14px; }
+  .toggle-list { grid-template-columns: minmax(0,1fr); }
+  .naming-row { grid-template-columns: minmax(0,1fr); gap: 5px; }
+  .extract-drop { min-height: 84px; }
+  .extract-footer { padding: 11px 13px; flex-wrap: wrap; }
+  .extract-footer .export-button { min-width: 0; flex: 1; }
   .status-bar progress { width: 90px; }
 }
 
-/* ================= 图片批量转换 ================= */
-.batch-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 49px minmax(0,1fr) auto; background: #f7f2ed; }
+/* ================= 图片批量转换 / 序列图与精灵图转换 =================
+   两个模块共用同一套面板视觉语言。注意 JS 按类名选取标签页与面板：
+   batch.js 只认 .batch-tab / .batch-panel，sprite.js 只认 .sprite-tab / .sprite-panel，
+   因此这两类必须按模块分开命名，其余（.batch-tabs/.batch-section/.batch-field…）可共用。 */
+.batch-main, .sprite-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 49px minmax(0,1fr) auto; background: #f7f2ed; }
 
 .batch-tabs { display: flex; align-items: stretch; padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.batch-tab { position: relative; min-width: 148px; padding: 0 16px; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: #6e6056; cursor: pointer; font-size: 13px; font-weight: 650; }
-.batch-tab::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: -1px; height: 3px; background: transparent; }
-.batch-tab svg { width: 17px; height: 17px; }
-.batch-tab:hover { color: var(--ink); background: #fff8f2; }
-.batch-tab.is-active { color: var(--green); }
-.batch-tab.is-active::after { background: var(--green); }
+.batch-tab, .sprite-tab { position: relative; min-width: 148px; padding: 0 16px; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: #6e6056; cursor: pointer; font-size: 13px; font-weight: 650; }
+.batch-tab::after, .sprite-tab::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: -1px; height: 3px; background: transparent; }
+.batch-tab svg, .sprite-tab svg { width: 17px; height: 17px; }
+.batch-tab:hover, .sprite-tab:hover { color: var(--ink); background: #fff8f2; }
+.batch-tab.is-active, .sprite-tab.is-active { color: var(--green); }
+.batch-tab.is-active::after, .sprite-tab.is-active::after { background: var(--green); }
 
 .batch-panels { min-height: 0; overflow-y: auto; padding: 18px 20px; scrollbar-width: thin; }
-.batch-panel { display: none; }
-.batch-panel.is-active { display: grid; gap: 14px; align-content: start; }
+.batch-panel, .sprite-panel { display: none; }
+.batch-panel.is-active, .sprite-panel.is-active { display: grid; gap: 14px; align-content: start; }
 
 .batch-section { padding: 15px 17px; display: grid; gap: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .batch-section h3 { margin: 0; font-size: 13px; font-weight: 750; color: var(--ink); }
@@ -340,10 +368,13 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
 .batch-row-error { color: #c2410c; font-size: 10px; font-weight: 700; }
 
 @media (max-width: 860px) {
-  .content-shell.is-batch .batch-workspace { grid-template-columns: 1fr; }
-  .content-shell.is-batch .batch-workspace .file-panel { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
-  .batch-tab { min-width: 0; flex: 1; padding: 0 8px; font-size: 12px; }
-  .batch-tab span { display: none; }
+  /* 窄屏下 #app 的行改为 auto，工作区高度交还内容，钉死高度会压扁内容 */
+  .content-shell.is-batch .batch-workspace,
+  .content-shell.is-sprite .sprite-workspace { height: auto; grid-template-columns: 1fr; }
+  .content-shell.is-batch .batch-workspace .file-panel,
+  .content-shell.is-sprite .sprite-workspace .file-panel { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
+  .batch-tab, .sprite-tab { min-width: 0; flex: 1; padding: 0 8px; font-size: 12px; }
+  .batch-tab span, .sprite-tab span { display: none; }
   .batch-run-row { flex-wrap: wrap; }
   .batch-run-row .command-button, .batch-run-row .export-button { flex: 1; }
 }

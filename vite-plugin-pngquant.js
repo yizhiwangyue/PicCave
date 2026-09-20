@@ -195,9 +195,9 @@ export default function pngquantBridge(options = {}) {
 
     try {
       if (url.pathname === HEALTH_PATH) {
-        if (!binary) return sendJson(res, 503, { ok: false, error: "未找到 Packages/pngquant.exe", searched: CANDIDATE_PATHS });
+        if (!binary) return sendJson(res, 503, { ok: false, error: "图像处理组件未就绪", searched: CANDIDATE_PATHS });
         const info = await detectVersion();
-        if (!info) return sendJson(res, 500, { ok: false, error: "pngquant.exe 无法执行，可能被安全软件拦截" });
+        if (!info) return sendJson(res, 500, { ok: false, error: "图像处理组件无法运行，可能被安全软件拦截" });
         return sendJson(res, 200, {
           ok: true,
           engine: "pngquant",
@@ -214,7 +214,7 @@ export default function pngquantBridge(options = {}) {
         res.setHeader("Allow", "POST");
         return res.end();
       }
-      if (!binary) return sendJson(res, 503, { ok: false, error: "未找到 Packages/pngquant.exe" });
+      if (!binary) return sendJson(res, 503, { ok: false, error: "图像处理组件未就绪" });
 
       const body = await readBody(req);
       if (!body.length) return sendJson(res, 400, { ok: false, error: "请求体为空" });
@@ -242,7 +242,7 @@ export default function pngquantBridge(options = {}) {
       const stderrText = result.stderr.toString("utf8");
 
       if (result.spawnError) {
-        return sendJson(res, 500, { ok: false, error: `无法启动 pngquant：${result.spawnError.message}` });
+        return sendJson(res, 500, { ok: false, error: `无法启动处理组件：${result.spawnError.message}` });
       }
 
       // 只有退出码 0 的 stdout 才可信：99 / 98 同样会吐字节，但语义上属于"放弃"
@@ -275,7 +275,7 @@ export default function pngquantBridge(options = {}) {
 
       return sendJson(res, 500, {
         ok: false,
-        error: `pngquant 执行失败（退出码 ${result.code}）`,
+        error: `处理失败（退出码 ${result.code}）`,
         detail: stderrText.slice(0, 400),
       });
     } catch (error) {

@@ -49,7 +49,7 @@ function createWasmRuntime() {
   };
 
   worker.onerror = (event) => {
-    pending.forEach((request) => request.reject(new Error(event.message || "量化引擎加载失败")));
+    pending.forEach((request) => request.reject(new Error(event.message || "图像处理模块加载失败")));
     pending.clear();
   };
 
@@ -109,7 +109,7 @@ async function detectEngine() {
 
     return {
       mode: "native",
-      label: info.version ? `pngquant ${info.version}` : "pngquant",
+      label: "本地处理引擎",
       version: info.version || "",
       binary: info.binary || "",
       features: info.features || null,
@@ -118,7 +118,7 @@ async function detectEngine() {
   } catch (error) {
     return {
       mode: "wasm",
-      label: "libimagequant (WASM)",
+      label: "本地处理引擎",
       version: "",
       binary: "",
       features: null,
@@ -181,7 +181,7 @@ async function quantizeNative(buffer, options) {
 
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    throw new Error(detail?.error || `pngquant 桥接返回 HTTP ${response.status}`);
+    throw new Error(detail?.error || `处理服务返回 HTTP ${response.status}`);
   }
 
   if ((response.headers.get("X-Quant-Status") || "").toLowerCase() === "fallback") {

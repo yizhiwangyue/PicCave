@@ -4,12 +4,13 @@ import gifsicle from "gifsicle-wasm-browser";
 import { createIcons, icons } from "lucide";
 import { workerCall, onWorkerProgress, onWorkerError } from "./runtime.js";
 import { initBatchModule } from "./batch.js";
+import { initSpriteModule } from "./sprite.js";
 
 createIcons({ icons });
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  runtime: $("runtime-state"), status: $("status-text"), progress: $("progress"),
+  status: $("status-text"), progress: $("progress"),
   sequenceInput: $("sequence-input"), sequenceFolderInput: $("sequence-folder-input"), sequenceDrop: $("sequence-drop"), clearFiles: $("clear-files"),
   sequenceSourceMenu: $("sequence-source-menu"), chooseSequenceFiles: $("choose-sequence-files"), chooseSequenceFolder: $("choose-sequence-folder"),
   fileList: $("file-list"), fileCount: $("file-count"), canvas: $("preview-canvas"),
@@ -23,8 +24,9 @@ const ui = {
   colors: $("color-count"), transparency: $("transparency-mode"), strength: $("dither-strength"),
   compression: $("compression-preset"), rawPreview: $("raw-preview"),
   compressedPreview: $("compressed-preview"), exportGif: $("export-gif"), result: $("sequence-result"),
-  gifInput: $("gif-input"), gifDrop: $("gif-drop"), gifSummary: $("gif-summary"),
+  gifInput: $("gif-input"), gifDrop: $("gif-drop"), gifClear: $("gif-clear"), gifCount: $("gif-count"), gifList: $("gif-list"),
   extractFormat: $("extract-format"), extractQuality: $("extract-quality"),
+  extractNaming: $("extract-naming"), extractNamingList: $("extract-naming-list"),
   extractTiming: $("extract-timing"), extractWhite: $("extract-white"),
   extractButton: $("extract-button"), extractResult: $("extract-result"),
 };
@@ -32,20 +34,15 @@ const ui = {
 const state = {
   files: [], bitmaps: new Map(), current: 0, sourceWidth: 0, sourceHeight: 0,
   crop: { x: 0, y: 0, w: 0, h: 0 }, playing: false, playTimer: null,
-  rawCache: null, compressedCache: null, gifFile: null, busy: false,
+  rawCache: null, compressedCache: null, gifFiles: [], busy: false,
   render: { x: 0, y: 0, w: 0, h: 0, scale: 1 }, drag: null,
 };
 
 onWorkerProgress((value, label) => setProgress(value, label));
 onWorkerError((message) => {
-  setRuntime("运行时加载失败", "error");
-  setStatus(`后台处理错误：${message}`, 0);
+  setStatus(`处理出现错误：${message}`, 0);
 });
 
-function setRuntime(label, mode = "") {
-  ui.runtime.className = `runtime-state${mode ? ` is-${mode}` : ""}`;
-  ui.runtime.querySelector("span:last-child").textContent = label;
-}
 function setStatus(label, value = ui.progress.value) { ui.status.textContent = label; ui.progress.value = value; }
 function setProgress(value, label) { setStatus(label, value); }
 function formatBytes(bytes) {
@@ -59,15 +56,13 @@ function naturalCompare(a, b) { return a.name.localeCompare(b.name, undefined, {
 function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }
 
 async function initializeRuntime() {
-  setRuntime("正在加载 Pyodide / Pillow");
-  setStatus("首次加载图像运行时，约需数秒", 3);
+  setStatus("正在初始化，首次加载约需数秒", 3);
   try {
     await workerCall("init");
-    setRuntime("Pillow 已就绪", "ready");
     setStatus("就绪，所有处理均在本机浏览器中完成", 0);
   } catch (error) {
-    setRuntime("运行时加载失败", "error");
-    setStatus(`无法加载 Pyodide：${error.message}`, 0);
+    console.error("运行时初始化失败：", error);
+    setStatus("初始化失败，请刷新页面重试", 0);
   }
 }
 
@@ -81,19 +76,23 @@ document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click",
 }));
 
 document.querySelectorAll(".module-nav").forEach((item) => item.addEventListener("click", () => {
-  const isBatch = item.dataset.module === "batch";
+  const module = item.dataset.module;
   document.querySelectorAll(".module-nav").forEach((navItem) => {
     const active = navItem === item;
     navItem.classList.toggle("is-active", active);
     if (active) navItem.setAttribute("aria-current", "page");
     else navItem.removeAttribute("aria-current");
   });
-  document.querySelector(".content-shell").classList.toggle("is-batch", isBatch);
-  if (isBatch) {
-    stopPlayback();
-  } else {
+  // 两个独立模块各自一个类，显式双向 toggle，避免切换时残留上一个模块的类
+  const shell = document.querySelector(".content-shell");
+  shell.classList.toggle("is-batch", module === "batch");
+  shell.classList.toggle("is-sprite", module === "sprite");
+  if (module === "converter") {
     setStatus("序列图与 GIF 转换", 0);
     requestAnimationFrame(drawPreview);
+  } else {
+    stopPlayback();
+    if (module === "sprite") setStatus("序列图与精灵图转换", 0);
   }
 }));
 
@@ -109,7 +108,7 @@ function bindDropZone(zone, input, callback) {
 }
 
 bindDropZone(ui.sequenceDrop, ui.sequenceInput, loadSequence);
-bindDropZone(ui.gifDrop, ui.gifInput, ([file]) => loadGif(file));
+bindDropZone(ui.gifDrop, ui.gifInput, addGifs);
 ui.sequenceFolderInput.addEventListener("change", () => {
   loadSequence([...ui.sequenceFolderInput.files]);
   ui.sequenceFolderInput.value = "";
@@ -454,7 +453,7 @@ function updateResultText() {
 function setBusy(busy) {
   state.busy = busy;
   [ui.rawPreview, ui.compressedPreview, ui.exportGif, ui.extractButton].forEach((button) => {
-    button.disabled = busy || (button === ui.extractButton ? !state.gifFile : !state.files.length);
+    button.disabled = busy || (button === ui.extractButton ? !state.gifFiles.length : !state.files.length);
   });
 }
 async function ensureRaw() {
@@ -482,11 +481,11 @@ async function ensureCompressed() {
   const loss = Number(ui.compression.value);
   const key = `${state.rawCache.key}::loss=${loss}`;
   if (state.compressedCache?.key === key) return state.compressedCache.blob;
-  setBusy(true); setProgress(25, loss ? `Gifsicle WASM 压缩中（有损 ${loss}）` : "Gifsicle WASM 无损优化中");
+  setBusy(true); setProgress(25, loss ? `正在压缩（有损 ${loss}）` : "正在优化");
   try {
     const command = loss ? `-O3 --lossy=${loss} input.gif -o /out/output.gif` : "-O3 input.gif -o /out/output.gif";
     const outputs = await gifsicle.run({ input: [{ file: raw, name: "input.gif" }], command: [command] });
-    if (!outputs?.length) throw new Error("Gifsicle 没有返回文件");
+    if (!outputs?.length) throw new Error("压缩失败，未生成输出文件");
     const blob = outputs[0] instanceof Blob ? outputs[0] : new Blob([outputs[0]], { type: "image/gif" });
     state.compressedCache = { key, blob };
     updateResultText();
@@ -525,39 +524,182 @@ function clearSequence() {
 }
 ui.clearFiles.addEventListener("click", clearSequence);
 
-async function loadGif(file) {
-  if (!file || file.type !== "image/gif") return setStatus("请选择 GIF 文件", 0);
-  state.gifFile = file;
-  const header = new Uint8Array(await file.slice(0, 10).arrayBuffer());
-  const isGif = header.length >= 10 && String.fromCharCode(...header.slice(0, 3)) === "GIF";
-  if (!isGif) { state.gifFile = null; return setStatus("文件内容不是有效的 GIF", 0); }
-  const width = header[6] | (header[7] << 8);
-  const height = header[8] | (header[9] << 8);
-  ui.gifSummary.textContent = `${file.name} · ${width} × ${height} · ${formatBytes(file.size)}`;
-  ui.extractResult.textContent = "已选择文件，点击按钮后解码并打包";
-  ui.extractButton.disabled = false;
-  setStatus("GIF 已载入", 0);
+/* ---------------- GIF → 序列图（支持批量） ---------------- */
+
+function isGifFile(file) {
+  return file.type === "image/gif" || /\.gif$/i.test(file.name);
 }
-ui.extractButton.addEventListener("click", () => runAction(async () => {
-  if (!state.gifFile) return;
-  setBusy(true); setProgress(5, "准备解码 GIF");
+
+/* 帧文件命名：非法字符替换为下划线；去掉开头/结尾的点、下划线、空格（Windows 不允许以点或空格结尾），
+   否则会和后面的分隔符叠成 set__0001 这种双下划线。为空则回落到 frame。 */
+function sanitizePrefix(value) {
+  const cleaned = String(value ?? "")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/^[.\s]+/, "")
+    .replace(/[_.\s]+$/, "");
+  return cleaned || "frame";
+}
+
+function defaultPrefix(file) {
+  return sanitizePrefix(file.name.replace(/\.gif$/i, ""));
+}
+
+/* 「逐个自定义」模式下每个 GIF 一行独立前缀输入。只在文件增删或规则切换时重建，
+   避免导出过程中重渲染打断正在输入的内容。 */
+function renderNamingList() {
+  const custom = ui.extractNaming.value === "custom";
+  ui.extractNamingList.hidden = !custom;
+  if (!custom) return;
+  if (!state.gifFiles.length) {
+    ui.extractNamingList.innerHTML = '<div class="empty-list">添加 GIF 后可逐个自定义名称</div>';
+    return;
+  }
+  ui.extractNamingList.replaceChildren(...state.gifFiles.map((item) => {
+    const row = document.createElement("div");
+    row.className = "naming-row";
+    const source = document.createElement("span");
+    source.className = "naming-source";
+    source.textContent = item.file.name;
+    source.title = item.file.name;
+    const input = document.createElement("input");
+    input.className = "naming-input";
+    input.type = "text";
+    input.value = item.prefix;
+    input.setAttribute("aria-label", `${item.file.name} 的输出前缀`);
+    input.addEventListener("input", () => { item.prefix = input.value; });
+    row.append(source, input);
+    return row;
+  }));
+}
+
+function resolvePrefix(item) {
+  const rule = ui.extractNaming.value;
+  if (rule === "custom") return sanitizePrefix(item.prefix);
+  if (rule === "source") return defaultPrefix(item.file);
+  return "frame";
+}
+
+ui.extractNaming.addEventListener("change", renderNamingList);
+renderNamingList();
+
+function renderGifList() {
+  ui.gifCount.textContent = `${state.gifFiles.length} 个`;
+  ui.gifClear.disabled = !state.gifFiles.length;
+  ui.gifList.replaceChildren(...state.gifFiles.map((item, index) => {
+    const row = document.createElement("div");
+    row.className = "frame-row batch-row-item";
+    let meta;
+    if (item.error) meta = `<span class="batch-row-error">失败</span>`;
+    else {
+      const size = item.width && item.height ? `${item.width} × ${item.height} · ` : "";
+      const frames = item.frames ? ` · ${item.frames} 帧` : "";
+      meta = `<span class="batch-row-meta">${size}${formatBytes(item.file.size)}${frames}</span>`;
+    }
+    row.innerHTML = `<span class="frame-index">${index + 1}</span><span class="frame-name"></span>${meta}`;
+    row.querySelector(".frame-name").textContent = item.file.name;
+    row.title = item.error || item.file.name;
+    return row;
+  }));
+  if (!state.gifFiles.length) ui.gifList.innerHTML = '<div class="empty-list">尚未添加 GIF</div>';
+  ui.extractResult.textContent = state.gifFiles.length
+    ? `已选择 ${state.gifFiles.length} 个 GIF，点击下方按钮解码并打包`
+    : "等待添加 GIF";
+  setBusy(state.busy);
+}
+
+async function probeGif(item) {
   try {
-    const buffer = await state.gifFile.arrayBuffer();
-    const response = await workerCall("extract", { buffer, settings: {
-      format: ui.extractFormat.value, quality: Number(ui.extractQuality.value), white: ui.extractWhite.checked,
-    } }, [buffer]);
-    setProgress(78, "正在打包 ZIP");
-    const zip = new JSZip();
-    response.files.forEach((file) => zip.file(file.name, file.buffer));
-    if (ui.extractTiming.checked) zip.file("timing.json", response.timing);
-    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 3 } }, (meta) => setProgress(78 + meta.percent * .21, "正在打包 ZIP"));
-    const base = state.gifFile.name.replace(/\.gif$/i, "");
-    downloadBlob(blob, `${base}_frames.zip`);
-    ui.extractResult.textContent = `${response.files.length} 帧 · ZIP ${formatBytes(blob.size)}`;
-    setProgress(100, `序列图已打包：${response.files.length} 帧`);
+    const header = new Uint8Array(await item.file.slice(0, 10).arrayBuffer());
+    const valid = header.length >= 10 && String.fromCharCode(...header.slice(0, 3)) === "GIF";
+    if (!valid) { item.error = "文件内容不是有效的 GIF"; return; }
+    item.width = header[6] | (header[7] << 8);
+    item.height = header[8] | (header[9] << 8);
+  } catch (_) { /* 读文件头失败不阻断后续解码 */ }
+}
+
+function addGifs(files) {
+  if (!files.length) return;
+  const candidates = files.filter(isGifFile);
+  const accepted = [];
+  candidates.forEach((file) => {
+    const duplicate = state.gifFiles.some((item) => item.file.name === file.name && item.file.size === file.size);
+    if (!duplicate) accepted.push({ file, prefix: defaultPrefix(file), width: 0, height: 0, frames: 0, error: "" });
+  });
+  if (!accepted.length) {
+    setStatus(candidates.length ? "这些 GIF 已在列表中" : "请选择 GIF 文件", 0);
+    return;
+  }
+  state.gifFiles.push(...accepted);
+  renderGifList();
+  renderNamingList();
+  setStatus(`已添加 ${accepted.length} 个 GIF`, 0);
+  Promise.all(accepted.map(probeGif)).then(renderGifList);
+}
+
+function clearGifs() {
+  state.gifFiles = [];
+  renderGifList();
+  renderNamingList();
+  setStatus("已清空 GIF 列表", 0);
+}
+
+ui.gifClear.addEventListener("click", clearGifs);
+
+ui.extractButton.addEventListener("click", () => runAction(async () => {
+  if (!state.gifFiles.length) return;
+  const settings = {
+    format: ui.extractFormat.value,
+    quality: Number(ui.extractQuality.value),
+    white: ui.extractWhite.checked,
+  };
+  const multiple = state.gifFiles.length > 1;
+  const zip = new JSZip();
+  const usedFolders = new Set();
+  let totalFrames = 0;
+
+  setBusy(true);
+  try {
+    for (let index = 0; index < state.gifFiles.length; index += 1) {
+      const item = state.gifFiles[index];
+      setProgress(4 + (index / state.gifFiles.length) * 74, `正在解码 ${item.file.name}`);
+      const buffer = await item.file.arrayBuffer();
+      const response = await workerCall("extract", {
+        buffer,
+        settings: { ...settings, prefix: resolvePrefix(item) },
+      }, [buffer]);
+      let target = zip;
+      if (multiple) {
+        const base = item.file.name.replace(/\.gif$/i, "") || `gif_${index + 1}`;
+        let name = base;
+        let suffix = 2;
+        while (usedFolders.has(name)) name = `${base}_${suffix++}`;
+        usedFolders.add(name);
+        target = zip.folder(name);
+      }
+      response.files.forEach((file) => target.file(file.name, file.buffer));
+      if (ui.extractTiming.checked) target.file("timing.json", response.timing);
+      item.error = "";
+      item.frames = response.files.length;
+      totalFrames += response.files.length;
+      renderGifList();
+    }
+
+    setProgress(82, "正在打包 ZIP");
+    const blob = await zip.generateAsync(
+      { type: "blob", compression: "DEFLATE", compressionOptions: { level: 3 } },
+      (meta) => setProgress(82 + meta.percent * .17, "正在打包 ZIP"),
+    );
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = multiple
+      ? `gif_frames_${stamp}.zip`
+      : `${state.gifFiles[0].file.name.replace(/\.gif$/i, "")}_frames.zip`;
+    downloadBlob(blob, filename);
+    ui.extractResult.textContent = `${state.gifFiles.length} 个 GIF · ${totalFrames} 帧 · ZIP ${formatBytes(blob.size)}`;
+    setProgress(100, `序列图已打包：${totalFrames} 帧`);
   } finally { setBusy(false); }
 }));
 
 initializeRuntime();
 drawPreview();
 initBatchModule();
+initSpriteModule();

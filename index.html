@@ -17,23 +17,23 @@
         </div>
         <div class="header-meta">
           <div class="local-badge"><i data-lucide="shield-check"></i><span>文件仅在本机处理</span></div>
-          <div class="runtime-state" id="runtime-state">
-            <span class="state-dot"></span>
-            <span>运行时待加载</span>
-          </div>
         </div>
       </header>
 
       <div class="app-body">
         <aside class="main-sidebar" aria-label="功能菜单">
           <div class="sidebar-section-label">工具</div>
+          <button class="module-nav" type="button" data-module="batch">
+            <i data-lucide="layout-grid"></i>
+            <span>图片批量转换</span>
+          </button>
           <button class="module-nav is-active" type="button" data-module="converter" aria-current="page">
             <i data-lucide="repeat-2"></i>
             <span>序列图与 GIF 转换</span>
           </button>
-          <button class="module-nav" type="button" data-module="batch">
-            <i data-lucide="layout-grid"></i>
-            <span>图片批量转换</span>
+          <button class="module-nav" type="button" data-module="sprite">
+            <i data-lucide="grid-3x3"></i>
+            <span>序列图与精灵图转换</span>
           </button>
           <div class="sidebar-spacer"></div>
           <div class="sidebar-local"><i data-lucide="hard-drive"></i><span>本地工作区</span></div>
@@ -176,34 +176,49 @@
         </section>
 
         <section class="workspace extract-workspace" id="extract-workspace">
-          <div class="extract-intro">
-            <span class="eyebrow">批量提取</span>
-            <h2>GIF 转序列图</h2>
-            <p>将 GIF 的每一帧解码为独立图片，并打包成一个 ZIP 文件。</p>
-          </div>
-          <div class="extract-flow">
-            <label class="drop-zone extract-drop" id="gif-drop">
-              <input id="gif-input" type="file" accept="image/gif" />
-              <span class="drop-icon"><i data-lucide="file-up"></i></span>
-              <strong>将 GIF 拖到这里</strong>
-              <span>或点击选择文件</span>
-            </label>
-            <div class="extract-details">
-              <div class="file-summary" id="gif-summary"><i data-lucide="file-question"></i><span>尚未选择 GIF</span></div>
-              <div class="settings-grid extract-settings">
-                <label><span>图片格式</span><select id="extract-format"><option value="PNG">PNG</option><option value="WEBP">WebP</option><option value="JPG">JPG</option></select></label>
-                <label><span>输出质量</span><input id="extract-quality" type="number" value="92" min="1" max="100" /></label>
+          <aside class="file-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow">素材</span>
+                <h2>待提取 GIF</h2>
+                <span id="gif-count">0 个</span>
               </div>
-              <div class="toggle-list">
-                <label class="check-label"><input id="extract-timing" type="checkbox" checked /><span>保存每帧时间信息</span></label>
-                <label class="check-label"><input id="extract-white" type="checkbox" checked /><span>透明区域使用白色</span></label>
-              </div>
-              <div class="extract-actions">
-                <div class="result-info" id="extract-result">等待选择 GIF</div>
-                <button class="export-button" id="extract-button" disabled><i data-lucide="archive"></i><span>导出序列图 ZIP</span></button>
+              <button class="icon-button" id="gif-clear" title="清空列表" disabled><i data-lucide="trash-2"></i></button>
+            </div>
+            <div class="drop-zone extract-drop" id="gif-drop" role="button" tabindex="0">
+              <input id="gif-input" type="file" accept="image/gif" multiple />
+              <i data-lucide="upload"></i>
+              <strong>添加 GIF</strong>
+              <span>点击选择，或直接拖放</span>
+            </div>
+            <div class="file-list" id="gif-list"><div class="empty-list">尚未添加 GIF</div></div>
+          </aside>
+
+          <section class="extract-main">
+            <div class="extract-head">
+              <span class="eyebrow">批量提取</span>
+              <h2>GIF 转序列图</h2>
+              <p>将每个 GIF 的每一帧解码为独立图片。多个 GIF 会按文件名分目录，打包进同一个 ZIP。</p>
+            </div>
+            <div class="extract-body">
+              <div class="extract-card">
+                <div class="settings-grid extract-settings">
+                  <label><span>图片格式</span><select id="extract-format"><option value="PNG">PNG</option><option value="WEBP">WebP</option><option value="JPG">JPG</option></select></label>
+                  <label><span>输出质量</span><input id="extract-quality" type="number" value="92" min="1" max="100" /></label>
+                  <label class="extract-naming-field"><span>命名规则</span><select id="extract-naming"><option value="frame" selected>统一序号命名</option><option value="source">跟随源文件名</option><option value="custom">逐个自定义</option></select></label>
+                </div>
+                <div class="naming-list" id="extract-naming-list" hidden></div>
+                <div class="toggle-list">
+                  <label class="check-label"><input id="extract-timing" type="checkbox" checked /><span>保存每帧时间信息</span></label>
+                  <label class="check-label"><input id="extract-white" type="checkbox" checked /><span>透明区域使用白色</span></label>
+                </div>
               </div>
             </div>
-          </div>
+            <footer class="extract-footer">
+              <div class="result-info" id="extract-result">等待添加 GIF</div>
+              <button class="export-button" id="extract-button" disabled><i data-lucide="archive"></i><span>导出序列图 ZIP</span></button>
+            </footer>
+          </section>
         </section>
         <section class="batch-workspace" id="batch-workspace" aria-label="图片批量转换">
           <aside class="file-panel">
@@ -262,19 +277,18 @@
                   <div class="batch-row" id="batch-convert-quality-row">
                     <label class="batch-field"><span>有损质量 <b id="batch-convert-quality-value">92</b></span><input class="setting-range" id="batch-convert-quality" type="range" value="92" min="1" max="100" /></label>
                   </div>
-                  <p class="batch-hint">勾选「保持原分辨率」后不改变尺寸。ICO 会等比缩放并居中放入方形画布，不会像桌面版那样被拉成正方形。</p>
                 </div>
               </div>
 
               <div class="batch-panel" data-batch-panel="compress">
                 <div class="batch-section">
-                  <h3>PNG 色彩量化</h3>
+                  <h3>压缩参数</h3>
                   <div class="batch-grid">
                     <label class="batch-field"><span>色彩上限</span><select id="batch-colors"><option>256</option><option>128</option><option>64</option><option>32</option><option>16</option></select></label>
-                    <label class="batch-field"><span>速度 1 最慢 – 11 最快</span><input id="batch-speed" type="number" value="4" min="1" max="11" /></label>
+                    <label class="batch-field"><span>速度（数值越大越快）</span><input id="batch-speed" type="number" value="4" min="1" max="11" /></label>
                     <label class="batch-field"><span>质量下限 <b id="batch-qmin-value">0</b></span><input class="setting-range" id="batch-qmin" type="range" value="0" min="0" max="100" /></label>
                     <label class="batch-field"><span>质量目标 <b id="batch-qtarget-value">95</b></span><input class="setting-range" id="batch-qtarget" type="range" value="95" min="0" max="100" /></label>
-                    <label class="check-label batch-check-cell"><input id="batch-dither" type="checkbox" checked /><span>抖动（Floyd–Steinberg）</span></label>
+                    <label class="check-label batch-check-cell"><input id="batch-dither" type="checkbox" checked /><span>抖动</span></label>
                     <label class="batch-field"><span>色调分离</span><input id="batch-posterization" type="number" value="0" min="0" max="4" /></label>
                   </div>
                 </div>
@@ -291,7 +305,6 @@
               <div class="batch-panel" data-batch-panel="workflow">
                 <div class="batch-section">
                   <h3>处理链</h3>
-                  <p class="batch-hint">按列表从上到下依次执行，每个文件都完整走一遍。用箭头调整顺序——执行顺序始终与列表一致，不会出现桌面版「拖了位置但执行顺序没变」的问题。</p>
                   <div class="batch-node-actions">
                     <button class="small-button accent" type="button" id="batch-add-convert"><i data-lucide="plus"></i>格式转换</button>
                     <button class="small-button accent" type="button" id="batch-add-compress"><i data-lucide="plus"></i>极致压缩</button>
@@ -311,12 +324,130 @@
                   </select>
                 </label>
                 <label class="batch-field"><span>前缀</span><input id="batch-prefix" type="text" value="Image" disabled /></label>
-                <span class="batch-engine" id="batch-engine"><i data-lucide="zap"></i><span>量化引擎待加载</span></span>
               </div>
               <div class="batch-row batch-run-row">
                 <div class="result-info" id="batch-result">等待添加图片</div>
                 <button class="command-button" id="batch-run" disabled><i data-lucide="play"></i><span>开始处理</span></button>
                 <button class="export-button" id="batch-export" disabled><i data-lucide="archive"></i><span>导出 ZIP</span></button>
+              </div>
+            </footer>
+          </section>
+        </section>
+
+        <section class="sprite-workspace" id="sprite-workspace" aria-label="序列图与精灵图转换">
+          <aside class="file-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow">素材</span>
+                <h2 id="sprite-panel-title">待合成序列帧</h2>
+                <span id="sprite-count">0 张</span>
+              </div>
+              <button class="icon-button" id="sprite-clear" title="清空列表" disabled><i data-lucide="trash-2"></i></button>
+            </div>
+            <div class="drop-zone extract-drop" id="sprite-drop" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false">
+              <input id="sprite-input" type="file" accept="image/*" multiple />
+              <input id="sprite-sheet-input" type="file" accept="image/*" />
+              <input id="sprite-folder-input" type="file" accept="image/*" webkitdirectory directory multiple />
+              <i data-lucide="upload"></i>
+              <strong id="sprite-drop-title">添加序列图片</strong>
+              <span id="sprite-drop-hint">点击选择，或直接拖放到这里</span>
+              <div class="source-menu" id="sprite-source-menu" role="menu" hidden>
+                <button type="button" id="sprite-choose-files" role="menuitem"><i data-lucide="images"></i><span><b>选择序列图片</b><small>可一次多选</small></span></button>
+                <button type="button" id="sprite-choose-folder" role="menuitem"><i data-lucide="folder-open"></i><span><b>选择序列文件夹</b><small>自动载入并按名称排序</small></span></button>
+              </div>
+            </div>
+            <div class="file-list" id="sprite-list"><div class="empty-list">尚未添加图片</div></div>
+          </aside>
+
+          <section class="sprite-main">
+            <nav class="batch-tabs" aria-label="精灵图处理模式">
+              <button class="sprite-tab is-active" type="button" data-sprite-tab="pack"><i data-lucide="layout-grid"></i><span>合成精灵图</span></button>
+              <button class="sprite-tab" type="button" data-sprite-tab="unpack"><i data-lucide="scissors"></i><span>切分序列帧</span></button>
+            </nav>
+
+            <div class="batch-panels">
+              <div class="sprite-panel is-active" data-sprite-panel="pack">
+                <div class="batch-section">
+                  <h3>网格排布</h3>
+                  <div class="batch-grid">
+                    <label class="batch-field"><span>列数</span><input id="sprite-cols" type="number" value="8" min="1" max="128" /></label>
+                    <label class="batch-field"><span>行数</span><input id="sprite-rows" type="number" value="8" min="1" max="128" placeholder="自动" /></label>
+                  </div>
+                  <label class="check-label"><input id="sprite-auto-layout" type="checkbox" /><span>自动排布（按图片数量取最接近的正方形）</span></label>
+                </div>
+
+                <div class="batch-section">
+                  <h3>输出画布</h3>
+                  <div class="batch-grid">
+                    <label class="batch-field"><span>画布宽</span><input id="sprite-canvas-w" type="number" value="2048" min="1" max="16384" /></label>
+                    <label class="batch-field"><span>画布高</span><input id="sprite-canvas-h" type="number" value="2048" min="1" max="16384" /></label>
+                    <label class="batch-field"><span>快速选择</span>
+                      <select id="sprite-canvas-preset">
+                        <option value="">自定义</option>
+                        <option value="512">512 × 512</option>
+                        <option value="1024">1024 × 1024</option>
+                        <option value="2048" selected>2048 × 2048</option>
+                        <option value="4096">4096 × 4096</option>
+                        <option value="auto">按最大帧自动推算</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p class="batch-hint">每帧按比例缩小到不超过格子后居中放置，尺寸不一致时中心依然对齐。</p>
+                </div>
+
+                <div class="batch-section">
+                  <h3>输出</h3>
+                  <div class="batch-grid">
+                    <label class="batch-field"><span>图片格式</span>
+                      <select id="sprite-format">
+                        <option value="png" selected>PNG（保留透明）</option>
+                        <option value="jpg">JPG</option>
+                        <option value="webp">WebP</option>
+                        <option value="bmp">BMP</option>
+                        <option value="tiff">TIFF</option>
+                      </select>
+                    </label>
+                    <label class="batch-field" id="sprite-quality-row" hidden><span>有损质量 <b id="sprite-quality-value">92</b></span><input class="setting-range" id="sprite-quality" type="range" value="92" min="1" max="100" /></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sprite-panel" data-sprite-panel="unpack">
+                <div class="batch-section">
+                  <h3>切片网格</h3>
+                  <div class="batch-grid">
+                    <label class="batch-field"><span>列数</span><input id="sprite-up-cols" type="number" value="8" min="1" max="128" /></label>
+                    <label class="batch-field"><span>行数</span><input id="sprite-up-rows" type="number" value="8" min="1" max="128" /></label>
+                  </div>
+                  <p class="batch-hint">按行列把整图等分，输出张数为「列 × 行」。</p>
+                </div>
+
+                <div class="batch-section">
+                  <h3>输出序列帧</h3>
+                  <div class="batch-grid">
+                    <label class="batch-field"><span>帧宽</span><input id="sprite-up-w" type="number" min="1" max="16384" placeholder="保持原尺寸" /></label>
+                    <label class="batch-field"><span>帧高</span><input id="sprite-up-h" type="number" min="1" max="16384" placeholder="保持原尺寸" /></label>
+                    <label class="batch-field"><span>图片格式</span>
+                      <select id="sprite-up-format">
+                        <option value="png" selected>PNG（保留透明）</option>
+                        <option value="jpg">JPG</option>
+                        <option value="webp">WebP</option>
+                        <option value="bmp">BMP</option>
+                        <option value="tiff">TIFF</option>
+                      </select>
+                    </label>
+                    <label class="batch-field"><span>前缀名</span><input id="sprite-up-prefix" type="text" value="frame" /></label>
+                    <label class="batch-field" id="sprite-up-quality-row" hidden><span>有损质量 <b id="sprite-up-quality-value">92</b></span><input class="setting-range" id="sprite-up-quality" type="range" value="92" min="1" max="100" /></label>
+                  </div>
+                  <p class="batch-hint">帧宽与帧高需同时填写或同时留空。</p>
+                </div>
+              </div>
+            </div>
+
+            <footer class="batch-footer">
+              <div class="batch-row batch-run-row">
+                <div class="result-info" id="sprite-result">等待添加素材</div>
+                <button class="export-button" id="sprite-run" disabled><i data-lucide="play"></i><span id="sprite-run-label">合成精灵图</span></button>
               </div>
             </footer>
           </section>

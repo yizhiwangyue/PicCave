@@ -26,7 +26,7 @@ async function encode(id, files, settings) {
   pyodide.globals.set("job_root", root);
   pyodide.globals.set("job_count", files.length);
   pyodide.globals.set("job_settings", JSON.stringify(settings));
-  postProgress(id, 28, "Pillow 正在处理图片");
+  postProgress(id, 28, "正在处理图片");
   await pyodide.runPythonAsync(`
 from PIL import Image, ImageOps
 import io, json, os
@@ -95,7 +95,7 @@ async function extract(id, buffer, settings) {
   pyodide.FS.writeFile(`${root}/input.gif`, new Uint8Array(buffer));
   pyodide.globals.set("extract_root", root);
   pyodide.globals.set("extract_settings", JSON.stringify(settings));
-  postProgress(id, 20, "Pillow 正在解码 GIF");
+  postProgress(id, 20, "正在解码 GIF");
   await pyodide.runPythonAsync(`
 from PIL import Image
 import io, json
@@ -103,6 +103,7 @@ import io, json
 settings = json.loads(extract_settings)
 fmt = settings["format"].upper()
 quality = int(settings["quality"])
+prefix = (settings.get("prefix") or "frame").strip() or "frame"
 results = []
 durations = []
 with Image.open(f"{extract_root}/input.gif") as gif:
@@ -129,7 +130,7 @@ with Image.open(f"{extract_root}/input.gif") as gif:
         else:
             frame.save(output, format="PNG", optimize=False)
             extension = "png"
-        results.append((f"frame_{index + 1:0{digits}d}.{extension}", output.getvalue()))
+        results.append((f"{prefix}_{index + 1:0{digits}d}.{extension}", output.getvalue()))
 extract_meta = json.dumps({"frame_count": count, "durations_ms": durations}, ensure_ascii=False)
 `);
   const proxy = pyodide.globals.get("results");
@@ -164,7 +165,7 @@ async function batchFile(id, buffer, settings) {
   pyodide.FS.writeFile(`${root}/input.img`, new Uint8Array(buffer));
   pyodide.globals.set("job_root", root);
   pyodide.globals.set("job_settings", JSON.stringify(settings));
-  postProgress(id, 20, "Pillow 正在解码");
+  postProgress(id, 20, "正在解码");
   await pyodide.runPythonAsync(`
 from PIL import Image
 import io, json
@@ -290,6 +291,209 @@ batch_meta = json.dumps({
   return { buffer: out, extension: meta.extension, needsQuantize: meta.needsQuantize, width: meta.width, height: meta.height };
 }
 
+/* 序列帧 → 精灵图。
+   合成策略：先定画布总尺寸，再均分出 cols×rows 个等大格子，
+   每帧 contain 缩放（保持比例）后精确居中贴入对应格子，保证播放时视觉中心不偏移。 */
+async function pack(id, files, settings) {
+  const pyodide = await getRuntime();
+  const root = `/tmp/pack_${id}`;
+  try { pyodide.FS.mkdir(root); } catch (_) {}
+  postProgress(id, 8, "正在写入序列帧");
+  files.forEach((file, index) => pyodide.FS.writeFile(`${root}/${index}.img`, new Uint8Array(file.buffer)));
+  pyodide.globals.set("pack_root", root);
+  pyodide.globals.set("pack_count", files.length);
+  pyodide.globals.set("pack_settings", JSON.stringify(settings));
+  postProgress(id, 26, "正在合成精灵图");
+  await pyodide.runPythonAsync(`
+from PIL import Image
+import io, json, math
+
+settings = json.loads(pack_settings)
+count = int(pack_count)
+cols = int(settings.get("cols") or 0)
+rows = int(settings.get("rows") or 0)
+canvas_w = int(settings.get("canvasW") or 0)
+canvas_h = int(settings.get("canvasH") or 0)
+fmt = (settings.get("format") or "png").lower()
+quality = max(1, min(100, int(settings.get("quality") or 92)))
+
+# 行列推算：指定了列就由列推行，反之亦然；都没给则取最接近的正方形排布
+if cols and rows:
+    if cols * rows < count:
+        rows = math.ceil(count / cols)
+elif cols:
+    rows = math.ceil(count / cols)
+elif rows:
+    cols = math.ceil(count / rows)
+else:
+    cols = math.ceil(math.sqrt(count))
+    rows = math.ceil(count / cols)
+
+# 画布推算：未指定时按所有帧中的最大宽/高作为单格尺寸，再乘以行列
+if not canvas_w or not canvas_h:
+    max_w = 0
+    max_h = 0
+    for index in range(count):
+        with Image.open(f"{pack_root}/{index}.img") as probe:
+            max_w = max(max_w, probe.width)
+            max_h = max(max_h, probe.height)
+    if not canvas_w:
+        canvas_w = max_w * cols
+    if not canvas_h:
+        canvas_h = max_h * rows
+
+cell_w = max(1, canvas_w // cols)
+cell_h = max(1, canvas_h // rows)
+
+sheet = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+
+for index in range(count):
+    with Image.open(f"{pack_root}/{index}.img") as source:
+        frame = source.convert("RGBA")
+    src_w, src_h = frame.size
+    scale = min(cell_w / src_w, cell_h / src_h)
+    if abs(scale - 1.0) > 1e-6:
+        frame = frame.resize(
+            (max(1, int(round(src_w * scale))), max(1, int(round(src_h * scale)))),
+            Image.Resampling.LANCZOS,
+        )
+    draw_w, draw_h = frame.size
+    cell_x = (index % cols) * cell_w
+    cell_y = (index // cols) * cell_h
+    sheet.paste(
+        frame,
+        (cell_x + (cell_w - draw_w) // 2, cell_y + (cell_h - draw_h) // 2),
+        mask=frame,
+    )
+
+output = io.BytesIO()
+extension = fmt
+if fmt in ("jpg", "jpeg"):
+    flat = Image.new("RGB", sheet.size, (255, 255, 255))
+    flat.paste(sheet, mask=sheet.split()[3])
+    flat.save(output, format="JPEG", quality=quality, optimize=True, subsampling=0)
+    extension = "jpg"
+elif fmt == "webp":
+    sheet.save(output, format="WEBP", quality=quality, method=4)
+    extension = "webp"
+elif fmt == "bmp":
+    flat = Image.new("RGB", sheet.size, (255, 255, 255))
+    flat.paste(sheet, mask=sheet.split()[3])
+    flat.save(output, format="BMP")
+    extension = "bmp"
+elif fmt == "tiff":
+    sheet.save(output, format="TIFF")
+    extension = "tiff"
+else:
+    sheet.save(output, format="PNG", optimize=True)
+    extension = "png"
+
+pack_bytes = output.getvalue()
+pack_meta = json.dumps({
+    "extension": extension,
+    "cols": cols,
+    "rows": rows,
+    "width": canvas_w,
+    "height": canvas_h,
+    "cellW": cell_w,
+    "cellH": cell_h,
+})
+`);
+  postProgress(id, 90, "正在返回合成结果");
+  const bytesProxy = pyodide.globals.get("pack_bytes");
+  const view = bytesProxy.toJs();
+  bytesProxy.destroy();
+  const meta = JSON.parse(pyodide.globals.get("pack_meta"));
+  const out = new Uint8Array(view).buffer;
+  cleanup(pyodide, root, files.length);
+  return { buffer: out, ...meta };
+}
+
+/* 精灵图 → 序列帧。按 cols×rows 均匀切分，帧名 `前缀_序号`，序号从 0 起。
+   格式为 JPG/BMP 时透明区域合成白底。 */
+async function unpack(id, buffer, settings) {
+  const pyodide = await getRuntime();
+  const root = `/tmp/unpack_${id}`;
+  try { pyodide.FS.mkdir(root); } catch (_) {}
+  pyodide.FS.writeFile(`${root}/sheet.img`, new Uint8Array(buffer));
+  pyodide.globals.set("unpack_root", root);
+  pyodide.globals.set("unpack_settings", JSON.stringify(settings));
+  postProgress(id, 20, "正在切分序列帧");
+  await pyodide.runPythonAsync(`
+from PIL import Image
+import io, json
+
+settings = json.loads(unpack_settings)
+cols = max(1, int(settings.get("cols") or 1))
+rows = max(1, int(settings.get("rows") or 1))
+fmt = (settings.get("format") or "png").lower()
+prefix = (settings.get("prefix") or "frame").strip() or "frame"
+quality = max(1, min(100, int(settings.get("quality") or 92)))
+out_w = int(settings.get("width") or 0)
+out_h = int(settings.get("height") or 0)
+
+with Image.open(f"{unpack_root}/sheet.img") as source:
+    sheet = source.convert("RGBA")
+
+img_w, img_h = sheet.size
+frame_w = max(1, img_w // cols)
+frame_h = max(1, img_h // rows)
+
+total = cols * rows
+digits = max(len(str(total)), 3)
+results = []
+
+for row in range(rows):
+    for col in range(cols):
+        index = row * cols + col
+        frame = sheet.crop((
+            col * frame_w,
+            row * frame_h,
+            col * frame_w + frame_w,
+            row * frame_h + frame_h,
+        ))
+        if out_w and out_h:
+            frame = frame.resize((out_w, out_h), Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        if fmt in ("jpg", "jpeg"):
+            flat = Image.new("RGB", frame.size, (255, 255, 255))
+            flat.paste(frame, mask=frame.split()[3])
+            flat.save(output, format="JPEG", quality=quality, optimize=True, subsampling=0)
+            ext = "jpg"
+        elif fmt == "bmp":
+            flat = Image.new("RGB", frame.size, (255, 255, 255))
+            flat.paste(frame, mask=frame.split()[3])
+            flat.save(output, format="BMP")
+            ext = "bmp"
+        elif fmt == "webp":
+            frame.save(output, format="WEBP", quality=quality, method=4)
+            ext = "webp"
+        elif fmt == "tiff":
+            frame.save(output, format="TIFF")
+            ext = "tiff"
+        else:
+            frame.save(output, format="PNG", optimize=True)
+            ext = "png"
+        results.append((f"{prefix}_{index:0{digits}d}.{ext}", output.getvalue()))
+
+unpack_meta = json.dumps({
+    "frame_count": total,
+    "cols": cols,
+    "rows": rows,
+    "frameW": frame_w,
+    "frameH": frame_h,
+}, ensure_ascii=False)
+`);
+  postProgress(id, 90, "正在返回切片结果");
+  const proxy = pyodide.globals.get("results");
+  const values = proxy.toJs({ create_proxies: false });
+  proxy.destroy();
+  const files = values.map(([name, data]) => ({ name, buffer: new Uint8Array(data).buffer }));
+  const meta = JSON.parse(pyodide.globals.get("unpack_meta"));
+  removeDir(pyodide, root, ["sheet.img"]);
+  return { files, ...meta };
+}
+
 self.onmessage = async (event) => {
   const { type, id } = event.data;
   try {
@@ -306,6 +510,12 @@ self.onmessage = async (event) => {
     } else if (type === "batch-file") {
       const result = await batchFile(id, event.data.buffer, event.data.settings);
       self.postMessage({ type: "batch-result", id, ...result }, [result.buffer]);
+    } else if (type === "pack") {
+      const result = await pack(id, event.data.files, event.data.settings);
+      self.postMessage({ type: "pack-result", id, ...result }, [result.buffer]);
+    } else if (type === "unpack") {
+      const result = await unpack(id, event.data.buffer, event.data.settings);
+      self.postMessage({ type: "unpack-result", id, ...result }, result.files.map((file) => file.buffer));
     }
   } catch (error) {
     self.postMessage({ type: "error", id, message: error?.message || String(error), stack: error?.stack || "" });

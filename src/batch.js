@@ -91,7 +91,6 @@ function collectUi() {
     nodes: $("batch-nodes"),
     naming: $("batch-naming"),
     prefix: $("batch-prefix"),
-    engine: $("batch-engine"),
     result: $("batch-result"),
     run: $("batch-run"),
     export: $("batch-export"),
@@ -138,7 +137,7 @@ function renderFiles() {
     const meta = result
       ? result.error
         ? `<span class="batch-row-error">失败</span>`
-        : `<span class="batch-row-meta">${formatBytes(result.outputSize)}${result.quantized ? ` · 量化(${result.engine === "pngquant" ? "exe" : "wasm"})` : ""}${result.keptOriginal ? " · 保留原图" : ""}${result.fallback ? " · 未量化" : ""}</span>`
+        : `<span class="batch-row-meta">${formatBytes(result.outputSize)}${result.keptOriginal ? " · 保留原图" : ""}</span>`
       : `<span class="batch-row-meta">${formatBytes(file.size)}</span>`;
     row.innerHTML = `<span class="frame-index">${index + 1}</span><span class="frame-name"></span>${meta}`;
     row.querySelector(".frame-name").textContent = file.name;
@@ -330,7 +329,7 @@ function summarize() {
   const parts = [`成功 ${done.length}${failed ? ` / 失败 ${failed}` : ""}`];
   parts.push(`${formatBytes(sourceTotal)} → ${formatBytes(outputTotal)}`);
   parts.push(`${saving >= 0 ? "减少" : "增加"} ${Math.abs(saving).toFixed(1)}%`);
-  if (quantizedCount) parts.push(`量化 ${quantizedCount} 张`);
+  if (quantizedCount) parts.push(`已压缩 ${quantizedCount} 张`);
   if (keptCount) parts.push(`保留原图 ${keptCount} 张`);
   ui.result.textContent = parts.join(" · ");
 }
@@ -482,27 +481,12 @@ function setSourceMenu(open) {
 
 async function ensureEngine() {
   if (state.engineReady) return true;
-  const label = ui.engine.querySelector("span");
-  label.textContent = "量化引擎加载中";
   try {
-    const engine = await loadQuantizer();
+    await loadQuantizer();
     state.engineReady = true;
-    ui.engine.classList.remove("is-error", "is-wasm", "is-native");
-    if (engine.mode === "native") {
-      ui.engine.classList.add("is-ready", "is-native");
-      label.textContent = `${engine.label} 已就绪`;
-      ui.engine.title = `原生引擎：${engine.binary}（直接调用 pngquant.exe）`;
-    } else {
-      ui.engine.classList.add("is-ready", "is-wasm");
-      label.textContent = "libimagequant WASM 已就绪";
-      ui.engine.title = "未连接到 pngquant.exe（静态部署或桥接不可用），已回退到 WASM 量化内核";
-    }
     return true;
   } catch (error) {
-    ui.engine.classList.remove("is-ready", "is-native", "is-wasm");
-    ui.engine.classList.add("is-error");
-    label.textContent = "量化引擎不可用，PNG 将走无损输出";
-    ui.engine.title = error?.message || "";
+    console.error("处理引擎初始化失败：", error);
     return false;
   }
 }
