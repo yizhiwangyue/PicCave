@@ -1,0 +1,606 @@
+import JSZip from "jszip";
+import { createIcons, icons } from "lucide";
+import { workerCall } from "./runtime.js";
+import { loadQuantizer, quantizePng } from "./quantizer.js";
+
+const $ = (id) => document.getElementById(id);
+
+const IMAGE_PATTERN = /\.(png|jpe?g|webp|bmp|tiff?|tga|gif|ico|psd|dds)$/i;
+const LOSSY_FORMATS = new Set(["jpg", "webp"]);
+
+const state = {
+  files: [],
+  results: [],
+  nodes: [],
+  mode: "convert",
+  busy: false,
+  engineReady: false,
+  loaded: false,
+};
+
+let ui = null;
+let nodeSeq = 0;
+
+function paintIcons() {
+  try {
+    createIcons({ icons });
+  } catch (_) {
+    /* 图标名缺失不应阻断功能 */
+  }
+}
+
+function setStatus(label, value) {
+  const text = $("status-text");
+  if (text) text.textContent = label;
+  const bar = $("progress");
+  if (bar && typeof value === "number" && Number.isFinite(value)) bar.value = Math.max(0, Math.min(100, value));
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "-";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit ? 2 : 0)} ${units[unit]}`;
+}
+
+const num = (element, fallback) => {
+  const value = Number(element?.value);
+  return Number.isFinite(value) ? value : fallback;
+};
+
+function collectUi() {
+  return {
+    workspace: $("batch-workspace"),
+    count: $("batch-count"),
+    clear: $("batch-clear"),
+    drop: $("batch-drop"),
+    input: $("batch-input"),
+    folderInput: $("batch-folder-input"),
+    sourceMenu: $("batch-source-menu"),
+    chooseFiles: $("batch-choose-files"),
+    chooseFolder: $("batch-choose-folder"),
+    list: $("batch-list"),
+    tabs: [...document.querySelectorAll(".batch-tab")],
+    panels: [...document.querySelectorAll(".batch-panel")],
+    keepRes: $("batch-keep-res"),
+    width: $("batch-width"),
+    height: $("batch-height"),
+    format: $("batch-format"),
+    convertQuality: $("batch-convert-quality"),
+    convertQualityValue: $("batch-convert-quality-value"),
+    convertQualityRow: $("batch-convert-quality-row"),
+    colors: $("batch-colors"),
+    speed: $("batch-speed"),
+    qmin: $("batch-qmin"),
+    qminValue: $("batch-qmin-value"),
+    qtarget: $("batch-qtarget"),
+    qtargetValue: $("batch-qtarget-value"),
+    dither: $("batch-dither"),
+    posterization: $("batch-posterization"),
+    jpgQuality: $("batch-jpg-quality"),
+    jpgQualityValue: $("batch-jpg-quality-value"),
+    skipLarger: $("batch-skip-larger"),
+    addConvert: $("batch-add-convert"),
+    addCompress: $("batch-add-compress"),
+    clearNodes: $("batch-clear-nodes"),
+    nodes: $("batch-nodes"),
+    naming: $("batch-naming"),
+    prefix: $("batch-prefix"),
+    engine: $("batch-engine"),
+    result: $("batch-result"),
+    run: $("batch-run"),
+    export: $("batch-export"),
+  };
+}
+
+/* ---------------- 素材 ---------------- */
+
+function isImage(file) {
+  return (file.type && file.type.startsWith("image/")) || IMAGE_PATTERN.test(file.name);
+}
+
+function addFiles(incoming) {
+  const accepted = incoming.filter(isImage);
+  if (!accepted.length) {
+    setStatus("没有找到可用的图片", 0);
+    return;
+  }
+  const seen = new Set(state.files.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+  accepted.forEach((file) => {
+    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    state.files.push(file);
+  });
+  state.files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  resetResults();
+  renderFiles();
+  refreshControls();
+  setStatus(`已载入 ${state.files.length} 张图片`, 0);
+}
+
+function renderFiles() {
+  if (!ui) return;
+  ui.count.textContent = `${state.files.length} 张`;
+  if (!state.files.length) {
+    ui.list.innerHTML = '<div class="empty-list">尚未添加图片</div>';
+    return;
+  }
+  ui.list.replaceChildren(...state.files.map((file, index) => {
+    const row = document.createElement("div");
+    row.className = "frame-row batch-row-item";
+    const result = state.results[index];
+    const meta = result
+      ? result.error
+        ? `<span class="batch-row-error">失败</span>`
+        : `<span class="batch-row-meta">${formatBytes(result.outputSize)}${result.quantized ? ` · 量化(${result.engine === "pngquant" ? "exe" : "wasm"})` : ""}${result.keptOriginal ? " · 保留原图" : ""}${result.fallback ? " · 未量化" : ""}</span>`
+      : `<span class="batch-row-meta">${formatBytes(file.size)}</span>`;
+    row.innerHTML = `<span class="frame-index">${index + 1}</span><span class="frame-name"></span>${meta}`;
+    row.querySelector(".frame-name").textContent = file.name;
+    row.title = result && result.error ? result.error : file.name;
+    return row;
+  }));
+}
+
+function resetResults() {
+  state.results = [];
+}
+
+/* ---------------- 模式 ---------------- */
+
+function setMode(mode) {
+  state.mode = mode;
+  ui.tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.batchTab === mode));
+  ui.panels.forEach((panel) => panel.classList.toggle("is-active", panel.dataset.batchPanel === mode));
+  refreshControls();
+}
+
+/* ---------------- 节点 ---------------- */
+
+function newNode(type) {
+  nodeSeq += 1;
+  if (type === "convert") {
+    return { key: nodeSeq, type: "convert", params: { keepResolution: false, width: 2048, height: 2048, format: "png", quality: 92 } };
+  }
+  return { key: nodeSeq, type: "compress", params: { maxColors: 256, speed: 4, qualityMin: 0, qualityTarget: 95, dithering: 1, posterization: 0, quality: 75 } };
+}
+
+function nodeOptionList(selected, values) {
+  return values.map((value) => `<option value="${value}"${String(selected) === String(value) ? " selected" : ""}>${value}</option>`).join("");
+}
+
+function renderNodes() {
+  if (!ui) return;
+  if (!state.nodes.length) {
+    ui.nodes.innerHTML = '<div class="empty-list">尚未添加节点，处理时按原格式输出</div>';
+    return;
+  }
+  ui.nodes.replaceChildren(...state.nodes.map((node, index) => {
+    const card = document.createElement("div");
+    card.className = "batch-node";
+    const label = node.type === "convert" ? "格式转换" : "极致压缩";
+    const body = node.type === "convert"
+      ? `<label class="check-label"><input type="checkbox" data-param="keepResolution"${node.params.keepResolution ? " checked" : ""} /><span>保持原分辨率</span></label>
+         <div class="batch-row">
+           <label class="batch-field"><span>宽</span><input type="number" data-param="width" value="${node.params.width}" min="1" max="16384" /></label>
+           <label class="batch-field"><span>高</span><input type="number" data-param="height" value="${node.params.height}" min="1" max="16384" /></label>
+           <label class="batch-field"><span>格式</span><select data-param="format">${nodeOptionList(node.params.format, ["png", "jpg", "webp", "bmp", "tiff", "tga", "ico"])}</select></label>
+           <label class="batch-field"><span>有损质量</span><input class="setting-range" type="range" data-param="quality" value="${node.params.quality}" min="1" max="100" /></label>
+         </div>`
+      : `<div class="batch-row">
+           <label class="batch-field"><span>色彩上限</span><select data-param="maxColors">${nodeOptionList(node.params.maxColors, [256, 128, 64, 32, 16])}</select></label>
+           <label class="batch-field"><span>速度 1 最慢 – 11 最快</span><input type="number" data-param="speed" value="${node.params.speed}" min="1" max="11" /></label>
+           <label class="batch-field"><span>质量下限</span><input class="setting-range" type="range" data-param="qualityMin" value="${node.params.qualityMin}" min="0" max="100" /></label>
+           <label class="batch-field"><span>质量目标</span><input class="setting-range" type="range" data-param="qualityTarget" value="${node.params.qualityTarget}" min="0" max="100" /></label>
+           <label class="check-label batch-check-cell"><input type="checkbox" data-param="dithering"${Number(node.params.dithering) > 0 ? " checked" : ""} /><span>抖动</span></label>
+           <label class="batch-field"><span>JPG 质量</span><input class="setting-range" type="range" data-param="quality" value="${node.params.quality}" min="1" max="100" /></label>
+         </div>`;
+    card.innerHTML = `<div class="batch-node-head">
+        <span class="batch-node-badge">${index + 1}</span>
+        <strong>${label}</strong>
+        <div class="batch-node-tools">
+          <button type="button" data-act="up" title="上移"${index === 0 ? " disabled" : ""}><i data-lucide="arrow-up"></i></button>
+          <button type="button" data-act="down" title="下移"${index === state.nodes.length - 1 ? " disabled" : ""}><i data-lucide="arrow-down"></i></button>
+          <button type="button" data-act="remove" title="删除"><i data-lucide="x"></i></button>
+        </div>
+      </div>
+      <div class="batch-node-body">${body}</div>`;
+
+    card.querySelectorAll("[data-param]").forEach((control) => {
+      const key = control.dataset.param;
+      const apply = () => {
+        if (control.type === "checkbox") node.params[key] = key === "dithering" ? (control.checked ? 1 : 0) : control.checked;
+        else if (control.tagName === "SELECT") node.params[key] = /^\d+$/.test(control.value) ? Number(control.value) : control.value;
+        else if (control.type === "range" || control.type === "number") node.params[key] = num(control, node.params[key]);
+      };
+      control.addEventListener("input", apply);
+      control.addEventListener("change", apply);
+    });
+
+    card.querySelectorAll("[data-act]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const action = button.dataset.act;
+        if (action === "remove") state.nodes.splice(index, 1);
+        if (action === "up" && index > 0) [state.nodes[index - 1], state.nodes[index]] = [state.nodes[index], state.nodes[index - 1]];
+        if (action === "down" && index < state.nodes.length - 1) [state.nodes[index + 1], state.nodes[index]] = [state.nodes[index], state.nodes[index + 1]];
+        renderNodes();
+      });
+    });
+    return card;
+  }));
+  paintIcons();
+}
+
+/* ---------------- 参数组装 ---------------- */
+
+function readConvertParams() {
+  return {
+    keepResolution: ui.keepRes.checked,
+    width: num(ui.width, 2048),
+    height: num(ui.height, 2048),
+    format: ui.format.value,
+    quality: num(ui.convertQuality, 92),
+  };
+}
+
+function readCompressParams() {
+  return {
+    maxColors: Number(ui.colors.value) || 256,
+    speed: num(ui.speed, 4),
+    qualityMin: num(ui.qmin, 0),
+    qualityTarget: num(ui.qtarget, 95),
+    dithering: ui.dither.checked ? 1 : 0,
+    posterization: num(ui.posterization, 0),
+    quality: num(ui.jpgQuality, 75),
+  };
+}
+
+function buildNodes() {
+  if (state.mode === "workflow") {
+    return state.nodes.map((node) => ({ type: node.type, params: { ...node.params } }));
+  }
+  if (state.mode === "convert") return [{ type: "convert", params: readConvertParams() }];
+  return [{ type: "compress", params: readCompressParams() }];
+}
+
+function normalizeExt(name) {
+  const raw = (name.split(".").pop() || "").toLowerCase();
+  if (raw === "jpeg") return "jpg";
+  if (raw === "tif") return "tiff";
+  return raw;
+}
+
+function buildName(original, extension, index, naming) {
+  const base = original.replace(/\.[^./\\]+$/, "") || original;
+  const stem = naming.mode === 1 ? `${naming.prefix}_${String(index + 1).padStart(3, "0")}` : base;
+  return `${stem}.${extension}`;
+}
+
+function uniqueName(name, used) {
+  if (!used.has(name)) {
+    used.add(name);
+    return name;
+  }
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let counter = 2;
+  let candidate = `${stem}_${counter}${ext}`;
+  while (used.has(candidate)) {
+    counter += 1;
+    candidate = `${stem}_${counter}${ext}`;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+/* ---------------- 执行 ---------------- */
+
+function setBusy(busy) {
+  state.busy = busy;
+  ui.run.disabled = busy || !state.files.length;
+  ui.export.disabled = busy || !state.results.some((result) => !result.error);
+  ui.clear.disabled = busy || !state.files.length;
+}
+
+function refreshControls() {
+  setBusy(state.busy);
+  ui.convertQualityRow.hidden = !LOSSY_FORMATS.has(ui.format.value);
+  if (!state.files.length) ui.result.textContent = "等待添加图片";
+  else if (!state.results.length) ui.result.textContent = `${state.files.length} 张待处理`;
+}
+
+function summarize() {
+  const done = state.results.filter((result) => !result.error);
+  const failed = state.results.length - done.length;
+  if (!done.length) {
+    ui.result.textContent = failed ? `全部 ${failed} 张处理失败` : "等待添加图片";
+    return;
+  }
+  const sourceTotal = done.reduce((sum, result) => sum + result.sourceSize, 0);
+  const outputTotal = done.reduce((sum, result) => sum + result.outputSize, 0);
+  const saving = sourceTotal ? (1 - outputTotal / sourceTotal) * 100 : 0;
+  const quantizedCount = done.filter((result) => result.quantized).length;
+  const keptCount = done.filter((result) => result.keptOriginal).length;
+  const parts = [`成功 ${done.length}${failed ? ` / 失败 ${failed}` : ""}`];
+  parts.push(`${formatBytes(sourceTotal)} → ${formatBytes(outputTotal)}`);
+  parts.push(`${saving >= 0 ? "减少" : "增加"} ${Math.abs(saving).toFixed(1)}%`);
+  if (quantizedCount) parts.push(`量化 ${quantizedCount} 张`);
+  if (keptCount) parts.push(`保留原图 ${keptCount} 张`);
+  ui.result.textContent = parts.join(" · ");
+}
+
+async function run() {
+  if (state.busy || !state.files.length) return;
+  const nodes = buildNodes();
+  const compressNode = [...nodes].reverse().find((node) => node.type === "compress");
+  const convertNode = nodes.find((node) => node.type === "convert");
+  const jpgQuality = compressNode?.params.quality ?? convertNode?.params.quality ?? 92;
+  const naming = { mode: Number(ui.naming.value), prefix: ui.prefix.value.trim() || "Image" };
+  const total = state.files.length;
+
+  resetResults();
+  renderFiles();
+  setBusy(true);
+  const used = new Set();
+
+  try {
+    for (let index = 0; index < total; index += 1) {
+      const file = state.files[index];
+      ui.result.textContent = `正在处理 ${index + 1} / ${total} · ${file.name}`;
+      setStatus(`处理中：${file.name}`, (index / total) * 100);
+      const sourceSize = file.size;
+      try {
+        const buffer = await file.arrayBuffer();
+        const response = await workerCall("batch-file", {
+          buffer,
+          settings: { nodes, originalName: file.name, jpgQuality },
+        }, [buffer]);
+
+        let output = response.buffer;
+        let quantized = false;
+        let fallback = false;
+        let keptOriginal = false;
+        let paletteLength = 0;
+        let engineName = "";
+        if (response.needsQuantize && compressNode) {
+          const params = compressNode.params;
+          const quantizedResult = await quantizePng(output, {
+            maxColors: params.maxColors,
+            speed: params.speed,
+            qualityMin: params.qualityMin,
+            qualityTarget: params.qualityTarget,
+            dithering: params.dithering,
+            posterization: params.posterization,
+          });
+          if (quantizedResult.fallback) {
+            // 画质低于质量下限：放弃量化，再让 Pillow 输出一张优化过的无损 PNG，
+            // 避免中间产物（快速压缩）比原图还大。
+            fallback = true;
+            const retryBuffer = await file.arrayBuffer();
+            const retryNodes = nodes.map((node) =>
+              node.type === "compress" ? { ...node, params: { ...node.params, maxColors: 1 } } : node);
+            const retry = await workerCall("batch-file", {
+              buffer: retryBuffer,
+              settings: { nodes: retryNodes, originalName: file.name, jpgQuality },
+            }, [retryBuffer]);
+            output = retry.buffer;
+          } else {
+            output = quantizedResult.buffer;
+            quantized = true;
+            paletteLength = quantizedResult.paletteLength;
+            engineName = quantizedResult.engine || "";
+          }
+        }
+        // 对应 pngquant 的 --skip-if-larger：同格式且结果更大时保留原文件，避免体积倒退
+        if (ui.skipLarger.checked && response.extension === normalizeExt(file.name) && output.byteLength > sourceSize) {
+          const originalBuffer = await file.arrayBuffer();
+          output = originalBuffer;
+          keptOriginal = true;
+          quantized = false;
+          fallback = false;
+        }
+
+        const name = uniqueName(buildName(file.name, response.extension, index, naming), used);
+        state.results.push({
+          name,
+          buffer: output,
+          sourceSize,
+          outputSize: output.byteLength,
+          quantized,
+          fallback,
+          keptOriginal,
+          paletteLength,
+          engine: engineName,
+        });
+      } catch (error) {
+        state.results.push({ name: file.name, error: error?.message || String(error), sourceSize, outputSize: 0 });
+      }
+      renderFiles();
+    }
+    summarize();
+    const ok = state.results.filter((result) => !result.error).length;
+    setStatus(`批量处理完成：成功 ${ok} / ${total}`, 100);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function exportZip() {
+  const done = state.results.filter((result) => !result.error);
+  if (!done.length) return;
+  setBusy(true);
+  setStatus("正在打包 ZIP", 80);
+  try {
+    const zip = new JSZip();
+    done.forEach((result) => zip.file(result.name, result.buffer));
+    const blob = await zip.generateAsync(
+      { type: "blob", compression: "DEFLATE", compressionOptions: { level: 3 } },
+      (meta) => setStatus("正在打包 ZIP", 80 + meta.percent * 0.19),
+    );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `piccave_batch_${new Date().toISOString().replace(/[:.]/g, "-")}.zip`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setStatus(`已导出 ${done.length} 张 · ZIP ${formatBytes(blob.size)}`, 100);
+  } catch (error) {
+    setStatus(`打包失败：${error.message}`, 0);
+  } finally {
+    setBusy(false);
+  }
+}
+
+/* ---------------- 初始化 ---------------- */
+
+function bindDropZone(zone, input, callback) {
+  ["dragenter", "dragover"].forEach((name) => zone.addEventListener(name, (event) => {
+    event.preventDefault();
+    zone.classList.add("is-dragging");
+  }));
+  ["dragleave", "drop"].forEach((name) => zone.addEventListener(name, (event) => {
+    event.preventDefault();
+    zone.classList.remove("is-dragging");
+  }));
+  zone.addEventListener("drop", (event) => callback([...event.dataTransfer.files]));
+  input.addEventListener("change", () => {
+    callback([...input.files]);
+    input.value = "";
+  });
+}
+
+function setSourceMenu(open) {
+  ui.sourceMenu.hidden = !open;
+  ui.drop.setAttribute("aria-expanded", String(open));
+}
+
+async function ensureEngine() {
+  if (state.engineReady) return true;
+  const label = ui.engine.querySelector("span");
+  label.textContent = "量化引擎加载中";
+  try {
+    const engine = await loadQuantizer();
+    state.engineReady = true;
+    ui.engine.classList.remove("is-error", "is-wasm", "is-native");
+    if (engine.mode === "native") {
+      ui.engine.classList.add("is-ready", "is-native");
+      label.textContent = `${engine.label} 已就绪`;
+      ui.engine.title = `原生引擎：${engine.binary}（直接调用 pngquant.exe）`;
+    } else {
+      ui.engine.classList.add("is-ready", "is-wasm");
+      label.textContent = "libimagequant WASM 已就绪";
+      ui.engine.title = "未连接到 pngquant.exe（静态部署或桥接不可用），已回退到 WASM 量化内核";
+    }
+    return true;
+  } catch (error) {
+    ui.engine.classList.remove("is-ready", "is-native", "is-wasm");
+    ui.engine.classList.add("is-error");
+    label.textContent = "量化引擎不可用，PNG 将走无损输出";
+    ui.engine.title = error?.message || "";
+    return false;
+  }
+}
+
+export function initBatchModule() {
+  ui = collectUi();
+  if (!ui.workspace) return;
+
+  bindDropZone(ui.drop, ui.input, addFiles);
+  ui.folderInput.addEventListener("change", () => {
+    addFiles([...ui.folderInput.files]);
+    ui.folderInput.value = "";
+  });
+  [ui.input, ui.folderInput].forEach((input) => input.addEventListener("click", (event) => event.stopPropagation()));
+
+  ui.drop.addEventListener("click", (event) => {
+    if (event.target.closest(".source-menu")) return;
+    setSourceMenu(ui.sourceMenu.hidden);
+  });
+  ui.drop.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setSourceMenu(ui.sourceMenu.hidden);
+    }
+    if (event.key === "Escape") setSourceMenu(false);
+  });
+  ui.chooseFiles.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setSourceMenu(false);
+    ui.input.click();
+  });
+  ui.chooseFolder.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setSourceMenu(false);
+    ui.folderInput.click();
+  });
+  document.addEventListener("click", (event) => {
+    if (!ui.drop.contains(event.target)) setSourceMenu(false);
+  });
+
+  ui.tabs.forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.batchTab)));
+
+  ui.clear.addEventListener("click", () => {
+    state.files = [];
+    resetResults();
+    renderFiles();
+    refreshControls();
+    setStatus("已清空素材", 0);
+  });
+
+  ui.format.addEventListener("change", refreshControls);
+  ui.keepRes.addEventListener("change", () => {
+    const disabled = ui.keepRes.checked;
+    ui.width.disabled = disabled;
+    ui.height.disabled = disabled;
+  });
+
+  const bindRange = (input, output, suffix = "") => {
+    input.addEventListener("input", () => {
+      output.textContent = `${input.value}${suffix}`;
+    });
+  };
+  bindRange(ui.convertQuality, ui.convertQualityValue);
+  bindRange(ui.qmin, ui.qminValue);
+  bindRange(ui.qtarget, ui.qtargetValue);
+  bindRange(ui.jpgQuality, ui.jpgQualityValue);
+
+  ui.naming.addEventListener("change", () => {
+    ui.prefix.disabled = ui.naming.value !== "1";
+  });
+
+  ui.addConvert.addEventListener("click", () => {
+    state.nodes.push(newNode("convert"));
+    renderNodes();
+  });
+  ui.addCompress.addEventListener("click", () => {
+    state.nodes.push(newNode("compress"));
+    renderNodes();
+  });
+  ui.clearNodes.addEventListener("click", () => {
+    state.nodes = [];
+    renderNodes();
+  });
+
+  ui.run.addEventListener("click", run);
+  ui.export.addEventListener("click", exportZip);
+
+  const navButton = document.querySelector('.module-nav[data-module="batch"]');
+  if (navButton) {
+    navButton.addEventListener("click", () => {
+      if (!state.loaded) {
+        state.loaded = true;
+        ensureEngine();
+      }
+    });
+  }
+
+  renderNodes();
+  renderFiles();
+  refreshControls();
+}

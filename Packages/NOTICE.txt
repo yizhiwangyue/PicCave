@@ -1,0 +1,35 @@
+Packages/ — 本地原生量化引擎
+============================
+
+pngquant.exe
+  版本   : 2.17.0 (September 2021, Rust)
+  用途   : 极致压缩模式的 PNG 色彩量化内核
+  来源   : https://pngquant.org/
+  许可   : GPL-3.0-or-later（pngquant 命令行程序）
+           上游同时提供商业授权用于闭源分发
+
+运行方式
+--------
+浏览器沙箱无法直接执行 Windows 可执行文件。本项目通过 Vite 开发服务器的
+中间件（vite-plugin-pngquant.js）在本机以子进程方式调用本目录下的
+pngquant.exe：
+
+    POST /api/pngquant
+    body   = 原始 PNG 字节
+    stdout = 量化后的 PNG 字节
+
+该通道只在 `npm run dev` / `npm run preview`（即 启动网页版.bat 启动的
+本地服务）下可用。静态部署（GitHub Pages）没有 Node 进程，前端会自动回退
+到 libimagequant WASM 量化内核，功能等价、参数略有差异：
+
+    能力            pngquant.exe      libimagequant WASM
+    --------------  ----------------  ------------------
+    色彩上限/速度   支持              支持
+    质量下限        支持(退出码 99)   支持(画质回退)
+    抖动            仅开/关(--nofs)   0-100% 连续可调
+    色调分离        支持(--posterize) 支持(setPosterization)
+
+替换二进制
+----------
+如需升级，直接用新版本覆盖本目录下的 pngquant.exe 即可，无需改动前端代码。
+接口会通过 GET /api/pngquant/health 返回探测到的版本号。

@@ -2,6 +2,8 @@ import "./style.css";
 import JSZip from "jszip";
 import gifsicle from "gifsicle-wasm-browser";
 import { createIcons, icons } from "lucide";
+import { workerCall, onWorkerProgress, onWorkerError } from "./runtime.js";
+import { initBatchModule } from "./batch.js";
 
 createIcons({ icons });
 
@@ -34,33 +36,11 @@ const state = {
   render: { x: 0, y: 0, w: 0, h: 0, scale: 1 }, drag: null,
 };
 
-let requestId = 0;
-const pending = new Map();
-const worker = new Worker(`${import.meta.env.BASE_URL}pyodide-worker.js`);
-worker.onmessage = (event) => {
-  const message = event.data;
-  if (message.type === "progress") {
-    setProgress(message.value, message.label);
-    return;
-  }
-  const request = pending.get(message.id);
-  if (!request) return;
-  pending.delete(message.id);
-  if (message.type === "error") request.reject(new Error(message.message));
-  else request.resolve(message);
-};
-worker.onerror = (event) => {
+onWorkerProgress((value, label) => setProgress(value, label));
+onWorkerError((message) => {
   setRuntime("运行时加载失败", "error");
-  setStatus(`后台处理错误：${event.message}`, 0);
-};
-
-function workerCall(type, payload = {}, transfers = []) {
-  const id = ++requestId;
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    worker.postMessage({ type, id, ...payload }, transfers);
-  });
-}
+  setStatus(`后台处理错误：${message}`, 0);
+});
 
 function setRuntime(label, mode = "") {
   ui.runtime.className = `runtime-state${mode ? ` is-${mode}` : ""}`;
@@ -580,3 +560,4 @@ ui.extractButton.addEventListener("click", () => runAction(async () => {
 
 initializeRuntime();
 drawPreview();
+initBatchModule();

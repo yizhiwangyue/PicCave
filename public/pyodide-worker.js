@@ -80,7 +80,9 @@ frames[0].save(output, format="GIF", save_all=True, append_images=frames[1:],
 gif_result = output.getvalue()
 `);
   postProgress(id, 92, "正在返回合成结果");
-  const result = pyodide.globals.get("gif_result").toJs();
+  const resultProxy = pyodide.globals.get("gif_result");
+  const result = resultProxy.toJs();
+  resultProxy.destroy();
   const bytes = new Uint8Array(result);
   cleanup(pyodide, root, files.length);
   return bytes.buffer;
@@ -150,6 +152,144 @@ function cleanup(pyodide, root, count, extraction = false) {
   } catch (_) {}
 }
 
+function removeDir(pyodide, root, entries) {
+  entries.forEach((name) => { try { pyodide.FS.unlink(`${root}/${name}`); } catch (_) {} });
+  try { pyodide.FS.rmdir(root); } catch (_) {}
+}
+
+async function batchFile(id, buffer, settings) {
+  const pyodide = await getRuntime();
+  const root = `/tmp/batch_${id}`;
+  try { pyodide.FS.mkdir(root); } catch (_) {}
+  pyodide.FS.writeFile(`${root}/input.img`, new Uint8Array(buffer));
+  pyodide.globals.set("job_root", root);
+  pyodide.globals.set("job_settings", JSON.stringify(settings));
+  postProgress(id, 20, "Pillow 正在解码");
+  await pyodide.runPythonAsync(`
+from PIL import Image
+import io, json
+
+settings = json.loads(job_settings)
+nodes = settings.get("nodes") or []
+original = settings.get("originalName") or "image"
+
+base, _, raw_ext = original.rpartition(".")
+if not base:
+    base, raw_ext = original, "png"
+current_ext = (raw_ext or "png").lower().lstrip(".") or "png"
+
+last_compress = None
+
+def fit_inside(size, limit):
+    w, h = size
+    longest = max(w, h)
+    if longest <= limit:
+        return (w, h)
+    ratio = float(limit) / float(longest)
+    return (max(1, int(round(w * ratio))), max(1, int(round(h * ratio))))
+
+def flatten_alpha(source):
+    rgba = source.convert("RGBA")
+    background = Image.new("RGB", rgba.size, (255, 255, 255))
+    background.paste(rgba, mask=rgba.split()[3])
+    return background
+
+image = Image.open(f"{job_root}/input.img")
+image.load()
+
+for node in nodes:
+    node_type = node.get("type")
+    params = node.get("params") or {}
+    if node_type == "convert":
+        target = str(params.get("format") or "png").lower()
+        if not params.get("keepResolution"):
+            try:
+                want_w = int(params.get("width") or 0)
+                want_h = int(params.get("height") or 0)
+            except (TypeError, ValueError):
+                want_w, want_h = 0, 0
+            if want_w > 0 and want_h > 0 and (want_w, want_h) != image.size:
+                image = image.resize((want_w, want_h), Image.Resampling.LANCZOS)
+        if target == "ico":
+            image = image.resize(fit_inside(image.size, 256), Image.Resampling.LANCZOS)
+        current_ext = target
+    elif node_type == "compress":
+        last_compress = params
+
+max_colors = 0
+try:
+    jpg_quality = int(settings.get("jpgQuality") or 92)
+except (TypeError, ValueError):
+    jpg_quality = 92
+if last_compress:
+    try:
+        max_colors = int(last_compress.get("maxColors") or 0)
+    except (TypeError, ValueError):
+        max_colors = 0
+    try:
+        jpg_quality = int(last_compress.get("quality") or jpg_quality)
+    except (TypeError, ValueError):
+        pass
+jpg_quality = max(1, min(100, jpg_quality))
+max_colors = max(0, min(256, max_colors))
+
+aliases = {"jpeg": "jpg", "tif": "tiff"}
+current_ext = aliases.get(current_ext, current_ext)
+if current_ext not in ("png", "jpg", "webp", "bmp", "tiff", "tga", "ico"):
+    current_ext = "png"
+
+output = io.BytesIO()
+needs_quantize = False
+
+if current_ext == "png":
+    if last_compress and max_colors >= 2:
+        image.convert("RGBA").save(output, format="PNG", compress_level=1)
+        needs_quantize = True
+    else:
+        work = image if image.mode in ("1", "L", "P", "RGB", "RGBA") else image.convert("RGBA")
+        work.save(output, format="PNG", optimize=True)
+elif current_ext == "jpg":
+    work = image if image.mode == "RGB" else flatten_alpha(image)
+    work.save(output, format="JPEG", quality=jpg_quality, optimize=True, subsampling=0)
+elif current_ext == "webp":
+    work = image if image.mode in ("RGB", "RGBA") else image.convert("RGBA")
+    work.save(output, format="WEBP", quality=jpg_quality, method=4)
+elif current_ext == "bmp":
+    work = image if image.mode == "RGB" else flatten_alpha(image)
+    work.save(output, format="BMP")
+elif current_ext == "tiff":
+    work = image if image.mode in ("1", "L", "P", "RGB", "RGBA", "CMYK") else image.convert("RGBA")
+    work.save(output, format="TIFF")
+elif current_ext == "tga":
+    work = image if image.mode in ("L", "RGB", "RGBA", "P") else image.convert("RGBA")
+    work.save(output, format="TGA")
+elif current_ext == "ico":
+    side = max(16, min(256, max(image.width, image.height)))
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    thumb = image.convert("RGBA")
+    if thumb.size != (side, side):
+        thumb = thumb.resize(fit_inside(thumb.size, side), Image.Resampling.LANCZOS)
+    canvas.paste(thumb, ((side - thumb.width) // 2, (side - thumb.height) // 2))
+    canvas.save(output, format="ICO", sizes=[(side, side)])
+
+batch_bytes = output.getvalue()
+batch_meta = json.dumps({
+    "extension": current_ext,
+    "needsQuantize": needs_quantize,
+    "width": image.width,
+    "height": image.height,
+})
+`);
+  postProgress(id, 62, "正在编码输出");
+  const bytesProxy = pyodide.globals.get("batch_bytes");
+  const view = bytesProxy.toJs();
+  bytesProxy.destroy();
+  const meta = JSON.parse(pyodide.globals.get("batch_meta"));
+  const out = new Uint8Array(view).buffer;
+  removeDir(pyodide, root, ["input.img"]);
+  return { buffer: out, extension: meta.extension, needsQuantize: meta.needsQuantize, width: meta.width, height: meta.height };
+}
+
 self.onmessage = async (event) => {
   const { type, id } = event.data;
   try {
@@ -163,6 +303,9 @@ self.onmessage = async (event) => {
       const result = await extract(id, event.data.buffer, event.data.settings);
       const transfers = result.files.map((file) => file.buffer);
       self.postMessage({ type: "extract-result", id, ...result }, transfers);
+    } else if (type === "batch-file") {
+      const result = await batchFile(id, event.data.buffer, event.data.settings);
+      self.postMessage({ type: "batch-result", id, ...result }, [result.buffer]);
     }
   } catch (error) {
     self.postMessage({ type: "error", id, message: error?.message || String(error), stack: error?.stack || "" });
