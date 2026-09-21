@@ -5,6 +5,7 @@ import { createIcons, icons } from "lucide";
 import { workerCall, onWorkerProgress, onWorkerError } from "./runtime.js";
 import { initBatchModule } from "./batch.js";
 import { initSpriteModule } from "./sprite.js";
+import { initAlphaModule } from "./alpha.js";
 
 createIcons({ icons });
 
@@ -59,7 +60,7 @@ async function initializeRuntime() {
   setStatus("正在初始化，首次加载约需数秒", 3);
   try {
     await workerCall("init");
-    setStatus("就绪，所有处理均在本机浏览器中完成", 0);
+    setStatus("功能已就绪", 0);
   } catch (error) {
     console.error("运行时初始化失败：", error);
     setStatus("初始化失败，请刷新页面重试", 0);
@@ -83,16 +84,23 @@ document.querySelectorAll(".module-nav").forEach((item) => item.addEventListener
     if (active) navItem.setAttribute("aria-current", "page");
     else navItem.removeAttribute("aria-current");
   });
-  // 两个独立模块各自一个类，显式双向 toggle，避免切换时残留上一个模块的类
+  // 各独立模块各自一个类。必须**逐个显式双向 toggle**：
+  // 只 toggle 自己那个会让上一个模块的类残留，结果两个工作区同时显示。
+  // 新增模块时：这里补一行 toggle，CSS 侧把 .is-xxx 加进成组选择器（两处都要改）。
   const shell = document.querySelector(".content-shell");
   shell.classList.toggle("is-batch", module === "batch");
   shell.classList.toggle("is-sprite", module === "sprite");
+  shell.classList.toggle("is-alpha", module === "alpha");
+  shell.classList.toggle("is-enhance", module === "enhance");
   if (module === "converter") {
     setStatus("序列图与 GIF 转换", 0);
     requestAnimationFrame(drawPreview);
   } else {
     stopPlayback();
+    // batch 分支历史上不写 setStatus，保持原样别动
     if (module === "sprite") setStatus("序列图与精灵图转换", 0);
+    if (module === "alpha") setStatus("Alpha 图批量转换", 0);
+    if (module === "enhance") setStatus("AI 图片画质增强", 0);
   }
 }));
 
@@ -703,3 +711,4 @@ initializeRuntime();
 drawPreview();
 initBatchModule();
 initSpriteModule();
+initAlphaModule();

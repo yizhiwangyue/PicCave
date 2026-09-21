@@ -30,16 +30,14 @@ svg { stroke-width: 1.8; }
 #app { min-height: 100vh; display: grid; grid-template-rows: 66px minmax(0, 1fr); }
 .app-header { padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--charcoal); color: white; border-bottom: 1px solid #443126; }
 .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
-.brand-mark { width: 38px; height: 38px; display: grid; place-items: center; color: #fff4e9; background: #d85e18; border: 1px solid #f09255; border-radius: 7px; }
-.brand-mark svg { width: 21px; height: 21px; }
+/* 品牌标记改用 Logo 图片：图标自带橙色圆角方块，所以这里不再画底色与描边，
+   只当一个定尺寸的容器，圆角交给 PNG 自身的透明区域。 */
+.brand-mark { flex: 0 0 auto; width: 38px; height: 38px; }
+.brand-mark img { display: block; width: 100%; height: 100%; }
 .brand h1 { margin: 0; font-size: 20px; line-height: 1; letter-spacing: 0; }
-.header-meta { display: flex; align-items: center; gap: 17px; }
-.local-badge { display: flex; align-items: center; gap: 7px; color: #d3c6bc; font-size: 11px; }
-.local-badge svg { width: 15px; height: 15px; color: #f19a59; }
-.runtime-state { display: flex; align-items: center; gap: 8px; color: #f0e7e0; font-size: 12px; white-space: nowrap; }
-.state-dot { width: 8px; height: 8px; border-radius: 50%; background: #dcae4b; box-shadow: 0 0 0 3px #ffffff12; }
-.runtime-state.is-ready .state-dot { background: #ff9b4a; }
-.runtime-state.is-error .state-dot { background: #f07962; }
+/* 头部右侧的 .header-meta / .local-badge（盾牌图标 + 「文件仅在本机处理」）已按要求移除，
+   其 .runtime-state / .state-dot 更早在「引擎信息只留数据层」那轮就没了引用，一并清掉。
+   头部高度由 #app 的 grid-template-rows 固定为 66px，不依赖这里的任何内容。 */
 
 .app-body { min-width: 0; min-height: 0; display: grid; grid-template-columns: 224px minmax(0, 1fr); }
 .main-sidebar { min-height: 0; padding: 15px 10px 12px; display: flex; flex-direction: column; gap: 5px; background: #eee5dd; border-right: 1px solid #d8ccc2; }
@@ -56,23 +54,52 @@ svg { stroke-width: 1.8; }
 /* 注意：批处理 / 精灵图这类独立模块模式下 .tabs 被设为 display:none，它会完全脱离 grid 流，
    因此这里只定义两行并显式指定各自的行号，避免自动排布把 main 挤到 0 高度。 */
 .content-shell.is-batch,
-.content-shell.is-sprite { grid-template-rows: minmax(0,1fr) 31px; }
+.content-shell.is-sprite,
+.content-shell.is-alpha,
+.content-shell.is-enhance { grid-template-rows: minmax(0,1fr) 31px; }
 .content-shell.is-batch .tabs,
-.content-shell.is-sprite .tabs { display: none; }
+.content-shell.is-sprite .tabs,
+.content-shell.is-alpha .tabs,
+.content-shell.is-enhance .tabs { display: none; }
 .content-shell.is-batch .workspace,
-.content-shell.is-sprite .workspace { display: none; }
+.content-shell.is-sprite .workspace,
+.content-shell.is-alpha .workspace,
+.content-shell.is-enhance .workspace { display: none; }
 .content-shell.is-batch main,
-.content-shell.is-sprite main { grid-row: 1; display: grid; min-height: 0; background: #f7f2ed; }
+.content-shell.is-sprite main,
+.content-shell.is-alpha main,
+.content-shell.is-enhance main { grid-row: 1; display: grid; min-height: 0; background: #f7f2ed; }
 .content-shell.is-batch .status-bar,
-.content-shell.is-sprite .status-bar { grid-row: 2; }
+.content-shell.is-sprite .status-bar,
+.content-shell.is-alpha .status-bar,
+.content-shell.is-enhance .status-bar { grid-row: 2; }
 .batch-workspace,
-.sprite-workspace { display: none; min-width: 0; min-height: 0; }
+.sprite-workspace,
+.alpha-workspace,
+.enhance-workspace { display: none; min-width: 0; min-height: 0; }
 /* 高度必须钉住：#app 用的是 min-height:100vh，minmax(0,1fr) 行会被内容撑开，
    素材多时整页被拉高、左栏列表的 overflow-y 永不生效，底部按钮被推出视口。
    与 .workspace.is-active 的 calc(100vh - 146px) 同源，这里的 97 = 头部 66 + 状态栏 31（无主标签页）。
    窄屏下 #app 改用 auto 行，故在 860px 断点里改回 height:auto。 */
 .content-shell.is-batch .batch-workspace,
 .content-shell.is-sprite .sprite-workspace { display: grid; height: calc(100vh - 97px); grid-template-columns: 244px minmax(0, 1fr); }
+/* Alpha 图模块：与批处理 / 精灵图同构（左素材栏 + 右主区），所以走同一套 244px 两栏。
+   高度同样要钉住：#app 是 min-height:100vh，不钉的话素材一多整页会被拉高。
+   ⚠️ 显隐一律由上面 .content-shell.is-alpha 的成组规则控制，
+      不要给它写 `.alpha-workspace.is-active { display: … }` 之类的覆盖（照抄序列图模块那套会出事）。 */
+.content-shell.is-alpha .alpha-workspace { display: grid; height: calc(100vh - 97px); grid-template-columns: 244px minmax(0, 1fr); }
+/* AI 图片画质增强：**目前是空白页**，还没有任何内容（用户要求先留白，只通侧栏入口）。
+   · 占位说明只写在这里，不写进 index.html —— Vite **不会**剥离 HTML 注释，
+     写在那儿会随页面发进用户浏览器（本项目 dist/index.html 历来是 0 注释）；
+     CSS / JS 注释构建时会被 minify 掉，所以内部说明一律放这两处。
+   · 显隐走上面 .content-shell.is-enhance 的成组规则，不要另写 `.enhance-workspace.is-active` 覆盖。
+   · 即便如此也先把高度钉住：它是 #app 的 minmax(0,1fr) 行，而 #app 用的是 min-height:100vh，
+     不钉的话将来一往里放内容就会被撑开，重演「素材一多整页被拉高、内部列表滚不动、
+     底部按钮被顶出视口」那套问题。现在留白等于把高度链先铺好，后续加内容不用再动布局。
+   · 窄屏（≤860px）里必须改回 height:auto，否则内容被压扁。 */
+.content-shell.is-enhance .enhance-workspace { display: block; height: calc(100vh - 97px); }
+/* 本模块没有子标签页，所以主区只有「内容 + 底部按钮」两行，不能套 .batch-main 的三行模板 */
+.alpha-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; background: #f7f2ed; }
 
 .tabs { display: flex; align-items: stretch; padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .tab { position: relative; min-width: 175px; padding: 0 16px; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: #6e6056; cursor: pointer; font-size: 13px; font-weight: 650; }
@@ -213,7 +240,11 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
 .extract-drop > svg { width: 20px; height: 20px; }
 .extract-footer { padding: 13px 22px; display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line); background: var(--surface-warm); }
 .extract-footer .result-info { flex: 1; min-width: 140px; }
-.extract-footer .export-button { width: auto; min-width: 196px; }
+/* min-width 必须留在 0：这里原本是 196px，为的是撑住旧文案「导出序列图 ZIP」。
+   按钮文字统一成「导出」之后，196px 会在两个字后面空出 170px（实测文字仅占 26px），
+   而批处理 / Alpha 的同类按钮是 85px —— 同一个动作三个模块宽度不一致很明显。
+   若以后又把文案改长，不要调这里的 min-width，让按钮随内容自然撑开即可。 */
+.extract-footer .export-button { width: auto; min-width: 0; }
 .toggle-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
 .check-label { display: flex; align-items: center; gap: 8px; color: #665449; font-size: 11px; cursor: pointer; }
 .check-label input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); }
@@ -266,9 +297,6 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
   .app-header { padding: 0 11px; }
   .brand-mark { width: 33px; height: 33px; }
   .brand h1 { font-size: 16px; }
-  .local-badge { display: none; }
-  .runtime-state { font-size: 10px; }
-  .runtime-state span:last-child { display: none; }
   .tabs { padding: 0; }
   .tab { flex: 1; min-width: 0; padding: 0 6px; font-size: 11px; }
   .tab::after { left: 7px; right: 7px; }
@@ -323,6 +351,19 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
 .batch-section { padding: 15px 17px; display: grid; gap: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .batch-section h3 { margin: 0; font-size: 13px; font-weight: 750; color: var(--ink); }
 .batch-hint { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+
+/* 极致压缩：只留「PNG 质量 / JPG 质量」两个参数，其余（色彩上限 256、速度 4、抖动开、色调分离 0）
+   按旧版默认值内置在代码里，面板上不再暴露。
+   .batch-note 是可选的说明条：只讲「能得到什么」，不讲用了什么实现。 */
+.batch-note { margin: 0; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 13px; border: 1px solid #f6dcc4; border-radius: 6px; background: var(--green-soft); color: var(--green-dark); font-size: 12px; font-weight: 650; }
+.batch-note svg { flex: 0 0 auto; width: 14px; height: 14px; }
+/* PNG 质量取值区间 + 右侧紧跟的灰色小字提示 | JPG 质量滑块。
+   两列按 1.35 : 1 分配：宽屏时提示与输入框同行，窄屏时自动折到输入框下方，
+   所以不需要额外的断点去改列数（三列方案在 900px 下提示列会被压成 0px 折成 24 行）。 */
+.compress-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: end; gap: 18px; }
+.compress-png-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.compress-png-row input { flex: 0 0 auto; width: 124px; }
+.compress-hint { color: var(--muted); font-size: 11px; font-style: normal; line-height: 1.5; }
 
 .batch-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .batch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 11px; }
@@ -383,18 +424,52 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
 .batch-engine.is-ready.is-native { color: var(--green-dark); font-weight: 700; }
 .batch-engine.is-ready.is-wasm { color: var(--quiet); font-weight: 400; }
 .batch-engine.is-error { color: #c2410c; }
-.batch-check-cell { align-self: end; padding-bottom: 9px; }
-
 .batch-row-item { grid-template-columns: 27px minmax(0, 1fr) auto; }
 .batch-row-meta { color: var(--quiet); font-size: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .batch-row-error { color: #c2410c; font-size: 10px; font-weight: 700; }
+
+/* ================= Alpha 图批量转换 =================
+   预览区是这一模块唯一的自定义部件：一块定高画布 + 居中的空状态提示。
+   高度故意写死 216px —— 画布是 height:100% 跟随容器的，容器高度若由内容决定，
+   就变成「画布尺寸 ← 容器 ← 画布」的循环依赖，ResizeObserver 会跟着抖。 */
+.alpha-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.alpha-preview-modes { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 5px; overflow: hidden; }
+.alpha-mode { height: 26px; padding: 0 11px; border: 0; background: var(--surface); color: #6e6056; cursor: pointer; font-size: 11px; font-weight: 650; }
+.alpha-mode + .alpha-mode { border-left: 1px solid var(--line-strong); }
+.alpha-mode:hover { background: #fff8f2; color: var(--ink); }
+.alpha-mode.is-active { background: var(--green); color: #fff; }
+
+.alpha-preview { position: relative; height: 216px; border: 1px solid var(--line); border-radius: 6px; background: #e9e1da; overflow: hidden; }
+/* 看原图时才铺棋盘格：透出来的就是真透明。结果图本身不透明，铺格子反而让人误以为有透明区。
+   结果模式的底板用中性灰（不是 --surface-soft 那种近白）—— 蒙版的白色区域在近白底板上等于隐形。 */
+.alpha-preview.is-source {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #e9e2dc 25%, transparent 25%),
+    linear-gradient(-45deg, #e9e2dc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e9e2dc 75%),
+    linear-gradient(-45deg, transparent 75%, #e9e2dc 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.alpha-preview canvas { display: block; width: 100%; height: 100%; }
+.alpha-preview-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--quiet); text-align: center; }
+/* position:absolute 会盖掉 [hidden] 的 UA 规则，必须显式补一条，否则提示语永远盖在图上 */
+.alpha-preview-empty[hidden] { display: none; }
+.alpha-preview-empty svg { width: 26px; height: 26px; margin-bottom: 2px; }
+.alpha-preview-empty strong { color: var(--muted); font-size: 12px; }
+.alpha-preview-empty span { font-size: 11px; }
+.alpha-quality-field { min-width: 210px; }
 
 @media (max-width: 860px) {
   /* 窄屏下 #app 的行改为 auto，工作区高度交还内容，钉死高度会压扁内容 */
   .content-shell.is-batch .batch-workspace,
   .content-shell.is-sprite .sprite-workspace { height: auto; grid-template-columns: 1fr; }
+  .content-shell.is-alpha .alpha-workspace { height: auto; grid-template-columns: 1fr; }
+  .content-shell.is-enhance .enhance-workspace { height: auto; }
   .content-shell.is-batch .batch-workspace .file-panel,
-  .content-shell.is-sprite .sprite-workspace .file-panel { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
+  .content-shell.is-sprite .sprite-workspace .file-panel,
+  .content-shell.is-alpha .alpha-workspace .file-panel { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
   .batch-tab, .sprite-tab { min-width: 0; flex: 1; padding: 0 8px; font-size: 12px; }
   .batch-tab span, .sprite-tab span { display: none; }
   .batch-run-row { flex-wrap: wrap; }

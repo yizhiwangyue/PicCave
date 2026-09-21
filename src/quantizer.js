@@ -163,6 +163,8 @@ function buildNativeParams(options) {
   const params = new URLSearchParams();
   params.set("colors", String(clampInt(options.maxColors, 256, 2, 256)));
   params.set("speed", String(clampInt(options.speed, 4, 1, 11)));
+  // 这里的 0 / 100 是**低层语义「不设限」**，不是界面默认值 —— 界面默认值在 src/batch.js 的
+  // PNG_QUALITY_FALLBACK 里，且调用方（batch.js）每次都会把两个值一起传进来，走不到这条兜底。
   params.set("qualityMin", String(clampInt(options.qualityMin, 0, 0, 100)));
   params.set("qualityMax", String(clampInt(options.qualityTarget, 100, 0, 100)));
   params.set("posterize", String(clampInt(options.posterization, 0, 0, 4)));

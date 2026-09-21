@@ -74,14 +74,7 @@ function collectUi() {
     convertQuality: $("batch-convert-quality"),
     convertQualityValue: $("batch-convert-quality-value"),
     convertQualityRow: $("batch-convert-quality-row"),
-    colors: $("batch-colors"),
-    speed: $("batch-speed"),
-    qmin: $("batch-qmin"),
-    qminValue: $("batch-qmin-value"),
-    qtarget: $("batch-qtarget"),
-    qtargetValue: $("batch-qtarget-value"),
-    dither: $("batch-dither"),
-    posterization: $("batch-posterization"),
+    pngQuality: $("batch-png-quality"),
     jpgQuality: $("batch-jpg-quality"),
     jpgQualityValue: $("batch-jpg-quality-value"),
     skipLarger: $("batch-skip-larger"),
@@ -166,7 +159,10 @@ function newNode(type) {
   if (type === "convert") {
     return { key: nodeSeq, type: "convert", params: { keepResolution: false, width: 2048, height: 2048, format: "png", quality: 92 } };
   }
-  return { key: nodeSeq, type: "compress", params: { maxColors: 256, speed: 4, qualityMin: 0, qualityTarget: 95, dithering: 1, posterization: 0, quality: 75 } };
+  // 与「极致压缩」面板保持一致：只有 PNG 质量（区间）与 JPG 质量可调，
+  // 其余（色彩上限 / 速度 / 抖动 / 色调分离）走 COMPRESS_FIXED 的固定值。
+  // ⚠️ 这里的初值要与 index.html 上的 `value` 和 PNG_QUALITY_FALLBACK 三处对齐。
+  return { key: nodeSeq, type: "compress", params: { ...COMPRESS_FIXED, qualityMin: 80, qualityTarget: 95, quality: 75 } };
 }
 
 function nodeOptionList(selected, values) {
@@ -191,13 +187,14 @@ function renderNodes() {
            <label class="batch-field"><span>格式</span><select data-param="format">${nodeOptionList(node.params.format, ["png", "jpg", "webp", "bmp", "tiff", "tga", "ico"])}</select></label>
            <label class="batch-field"><span>有损质量</span><input class="setting-range" type="range" data-param="quality" value="${node.params.quality}" min="1" max="100" /></label>
          </div>`
-      : `<div class="batch-row">
-           <label class="batch-field"><span>色彩上限</span><select data-param="maxColors">${nodeOptionList(node.params.maxColors, [256, 128, 64, 32, 16])}</select></label>
-           <label class="batch-field"><span>速度 1 最慢 – 11 最快</span><input type="number" data-param="speed" value="${node.params.speed}" min="1" max="11" /></label>
-           <label class="batch-field"><span>质量下限</span><input class="setting-range" type="range" data-param="qualityMin" value="${node.params.qualityMin}" min="0" max="100" /></label>
-           <label class="batch-field"><span>质量目标</span><input class="setting-range" type="range" data-param="qualityTarget" value="${node.params.qualityTarget}" min="0" max="100" /></label>
-           <label class="check-label batch-check-cell"><input type="checkbox" data-param="dithering"${Number(node.params.dithering) > 0 ? " checked" : ""} /><span>抖动</span></label>
-           <label class="batch-field"><span>JPG 质量</span><input class="setting-range" type="range" data-param="quality" value="${node.params.quality}" min="1" max="100" /></label>
+      : `<div class="compress-grid">
+           <label class="batch-field"><span>PNG 质量</span>
+             <div class="compress-png-row">
+               <input type="text" data-role="png-quality" value="${node.params.qualityMin}-${node.params.qualityTarget}" inputmode="numeric" spellcheck="false" autocomplete="off" />
+               <em class="compress-hint">（追求极致画质，可设置为 80-95；追求极致体积，可设置为 50-70）</em>
+             </div>
+           </label>
+           <label class="batch-field"><span>JPG 质量 <b data-role="jpg-badge">${node.params.quality}</b></span><input class="setting-range" type="range" data-param="quality" value="${node.params.quality}" min="1" max="100" /></label>
          </div>`;
     card.innerHTML = `<div class="batch-node-head">
         <span class="batch-node-badge">${index + 1}</span>
@@ -216,10 +213,28 @@ function renderNodes() {
         if (control.type === "checkbox") node.params[key] = key === "dithering" ? (control.checked ? 1 : 0) : control.checked;
         else if (control.tagName === "SELECT") node.params[key] = /^\d+$/.test(control.value) ? Number(control.value) : control.value;
         else if (control.type === "range" || control.type === "number") node.params[key] = num(control, node.params[key]);
+        if (key === "quality") {
+          const badge = control.closest(".batch-field")?.querySelector("[data-role='jpg-badge']");
+          if (badge) badge.textContent = String(node.params.quality);
+        }
       };
       control.addEventListener("input", apply);
       control.addEventListener("change", apply);
     });
+
+    // 节点里的 PNG 质量与主面板同一套规则：一个输入框写「下限-上限」，
+    // 直接落到 qualityMin / qualityTarget；写「80」＝只设上限（下限 0），失焦时归一回区间写法。
+    const pngField = card.querySelector('[data-role="png-quality"]');
+    if (pngField) {
+      const commit = () => {
+        const { min, max } = parsePngQuality(pngField.value);
+        node.params.qualityMin = min;
+        node.params.qualityTarget = max;
+        pngField.value = `${min}-${max}`;
+      };
+      pngField.addEventListener("change", commit);
+      pngField.addEventListener("blur", commit);
+    }
 
     card.querySelectorAll("[data-act]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -247,14 +262,45 @@ function readConvertParams() {
   };
 }
 
+/* ------------------------ 极致压缩参数 ------------------------ */
+
+/**
+ * 面板上的「PNG 质量」是一个 0–100 的**区间**，写成 `下限-上限`；
+ * 只写一个数时视为上限，下限按 0（＝不设底线，尽最大可能压）。
+ * 面板不再暴露色彩上限 / 速度 / 抖动 / 色调分离。
+ *
+ * ⚠️ 这四个固定值 = 旧版面板的默认值，改这里就等于悄悄改变压缩结果，务必同步改默认值注释。
+ *
+ * ⚠️⚠️ **改「PNG 质量」的默认值要动两处，只改一处会出现「清空后跳回旧值」的怪现象**：
+ *   1. `index.html` 的 `<input id="batch-png-quality" value="…">` —— 首屏显示值
+ *   2. 下面这个 PNG_QUALITY_FALLBACK —— 输入框被清空 / 输入乱码时跳回的值，失焦归一同用
+ *   节点的初值在 `newNode("compress")` 里，也要一并对齐。
+ *   （更低层的 quantizer / worker / 中间件里的 0 与 100 是「不设限」语义，不是 UI 默认值，别跟着改。）
+ */
+const PNG_QUALITY_FALLBACK = { min: 80, max: 95 };
+const COMPRESS_FIXED = { maxColors: 256, speed: 4, dithering: 1, posterization: 0 };
+
+const toQualityNumber = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(100, Math.max(0, Math.round(parsed)));
+};
+
+function parsePngQuality(raw) {
+  const numbers = String(raw ?? "").match(/\d+/g) || [];
+  if (!numbers.length) return { ...PNG_QUALITY_FALLBACK };
+  const first = toQualityNumber(numbers[0], PNG_QUALITY_FALLBACK.max);
+  if (numbers.length === 1) return { min: 0, max: first };
+  const second = toQualityNumber(numbers[1], first);
+  return { min: Math.min(first, second), max: Math.max(first, second) };
+}
+
 function readCompressParams() {
+  const { min, max } = parsePngQuality(ui.pngQuality.value);
   return {
-    maxColors: Number(ui.colors.value) || 256,
-    speed: num(ui.speed, 4),
-    qualityMin: num(ui.qmin, 0),
-    qualityTarget: num(ui.qtarget, 95),
-    dithering: ui.dither.checked ? 1 : 0,
-    posterization: num(ui.posterization, 0),
+    ...COMPRESS_FIXED,
+    qualityMin: min,
+    qualityTarget: max,
     quality: num(ui.jpgQuality, 75),
   };
 }
@@ -550,9 +596,15 @@ export function initBatchModule() {
     });
   };
   bindRange(ui.convertQuality, ui.convertQualityValue);
-  bindRange(ui.qmin, ui.qminValue);
-  bindRange(ui.qtarget, ui.qtargetValue);
   bindRange(ui.jpgQuality, ui.jpgQualityValue);
+
+  // PNG 质量允许随手写「80」或「80-95」，失焦/回车时归一回「下限-上限」，让简写被解释成什么一目了然。
+  const normalizePngQuality = () => {
+    const { min, max } = parsePngQuality(ui.pngQuality.value);
+    ui.pngQuality.value = `${min}-${max}`;
+  };
+  ui.pngQuality.addEventListener("change", normalizePngQuality);
+  ui.pngQuality.addEventListener("blur", normalizePngQuality);
 
   ui.naming.addEventListener("change", () => {
     ui.prefix.disabled = ui.naming.value !== "1";
