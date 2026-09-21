@@ -333,6 +333,28 @@ input.is-updated { border-color: var(--green); background: var(--green-soft); bo
 .batch-field .setting-range { width: 100%; }
 .batch-field[hidden], .batch-row[hidden] { display: none; }
 
+/* 切分方向：每张精灵图一套输出参数，按序号逐条设置。
+   --sheet-row-h 是单条的标准高度，行高与封顶高度共用它，改一个值即整体对齐。
+   窗口高度按 3 条封顶 + 内部滚动 —— 素材再多也不会把右侧面板撑高。 */
+/* 切分方向：每张精灵图一套参数（网格 + 输出），按序号逐条设置成卡片。
+   --sheet-row-h 是单条高度，行高与封顶高度共用它，改一个值即整体对齐。
+   封顶 5 条不是随手取的数：1440×900 下右侧面板可用高度实测 507px（面板 596 − 标题/提示 89），
+   单条 92px、间距 8px 时 5 条 = 492px 恰好放得下，6 条 = 592px 则第 6 条落在窗口外由内部滚动兜住。
+   行内各部件的高度也都是算过的：9+9 padding + 2 边框 + 14 序号行 + 6 间距 + (15 标签 + 5 + 30 输入) = 90 ≤ 92。 */
+.sheet-settings { --sheet-row-h: 92px; --sheet-row-gap: 8px; display: grid; gap: var(--sheet-row-gap); grid-auto-rows: minmax(var(--sheet-row-h), auto); max-height: calc(5 * var(--sheet-row-h) + 4 * var(--sheet-row-gap)); overflow-y: auto; scrollbar-width: thin; padding-right: 2px; }
+.sheet-setting-row { display: grid; gap: 6px; align-content: start; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.sheet-setting-meta { display: grid; grid-template-columns: 27px minmax(0, 1fr); align-items: center; gap: 7px; height: 14px; min-width: 0; }
+.sheet-setting-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 11px; }
+.sheet-setting-fields { grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.8fr) minmax(0,1.8fr) minmax(0,1fr); gap: 9px; }
+.sheet-setting-fields .batch-field > span { height: 15px; }
+.sheet-setting-fields input[type="number"], .sheet-setting-fields input[type="text"], .sheet-setting-fields select { height: 30px; }
+/* 不适用的字段（无损格式的质量、默认组的前缀）保留占位但不显示。
+   若用 display:none 会让其后的字段整体左移，行高与列宽随格式切换跳动。 */
+.sheet-setting-row .batch-field[hidden] { display: grid; visibility: hidden; }
+/* 尚未添加素材时展示的默认参数组：虚线边框 + 弱化标题，表明「还不是一张真实的图」 */
+.sheet-setting-row[data-draft="1"] { border-style: dashed; }
+.sheet-setting-row[data-draft="1"] .sheet-setting-name { color: var(--muted); }
+
 .batch-node-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .batch-node-actions .small-button { display: inline-flex; align-items: center; gap: 5px; }
 .batch-node-actions .small-button svg { width: 13px; height: 13px; }
