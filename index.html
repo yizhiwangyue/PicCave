@@ -20,6 +20,7 @@
             <h1>PicCave</h1>
           </div>
         </div>
+        <span class="header-browser-tip">建议使用Edge或Chrome浏览器</span>
       </header>
 
       <div class="app-body">
@@ -538,7 +539,88 @@
           </section>
         </section>
 
-        <section class="enhance-workspace" id="enhance-workspace" aria-label="AI 图片画质增强"></section>
+        <section class="enhance-workspace" id="enhance-workspace" aria-label="AI 图片画质增强">
+          <aside class="file-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow">素材</span>
+                <h2>待增强图片</h2>
+                <span id="enhance-count">0 张</span>
+              </div>
+              <button class="icon-button" id="enhance-clear" title="清空图片" disabled><i data-lucide="trash-2"></i></button>
+            </div>
+            <div class="drop-zone" id="enhance-drop" role="button" tabindex="0">
+              <input id="enhance-input" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" />
+              <i data-lucide="image-up"></i>
+              <strong>添加一张图片</strong>
+              <span>点击选择，或直接拖放到这里</span>
+            </div>
+            <div class="file-list" id="enhance-list"><div class="empty-list">尚未添加图片</div></div>
+          </aside>
+
+          <section class="enhance-main">
+            <div class="enhance-content">
+              <div class="enhance-heading">
+                <div>
+                  <span class="eyebrow">Real-ESRGAN</span>
+                  <h2>AI 图片画质增强</h2>
+                </div>
+              </div>
+
+              <div class="enhance-compare">
+                <figure class="enhance-view">
+                  <figcaption><span>原图</span><b id="enhance-source-size">-</b></figcaption>
+                  <div class="enhance-stage checkerboard">
+                    <img id="enhance-source-preview" alt="原图预览" hidden />
+                    <div class="enhance-empty" id="enhance-source-empty"><i data-lucide="image-plus"></i><span>等待添加图片</span></div>
+                  </div>
+                </figure>
+                <figure class="enhance-view">
+                  <figcaption><span>增强后</span><b id="enhance-result-size">-</b></figcaption>
+                  <div class="enhance-stage checkerboard">
+                    <img id="enhance-result-preview" alt="增强结果预览" hidden />
+                    <div class="enhance-empty" id="enhance-result-empty"><i data-lucide="sparkles"></i><span>等待开始增强</span></div>
+                  </div>
+                </figure>
+              </div>
+
+              <div class="enhance-settings">
+                <section>
+                  <h3>AI 处理</h3>
+                  <div class="batch-grid">
+                    <label class="batch-field"><span>运行引擎</span>
+                      <span class="enhance-fixed-value">WebGPU</span>
+                    </label>
+                    <label class="batch-field"><span>分块大小</span>
+                      <select id="enhance-tile-size">
+                        <option value="128">128（低内存）</option>
+                        <option value="256" selected>256（推荐）</option>
+                        <option value="512">512（速度优先）</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p class="enhance-engine-note" id="enhance-engine-note">正在加载 WebGPU 模型。</p>
+                </section>
+                <section>
+                  <h3>导出设置</h3>
+                  <div class="batch-grid">
+                    <label class="batch-field"><span>输出倍率</span><select id="enhance-scale"><option value="4">4 倍</option><option value="2" selected>2 倍</option></select></label>
+                    <label class="batch-field"><span>图片格式</span><select id="enhance-format"><option value="png" selected>PNG（保留透明）</option><option value="webp">WebP</option><option value="jpg">JPG（白色背景）</option></select></label>
+                    <label class="batch-field" id="enhance-quality-row" hidden><span>有损质量 <b id="enhance-quality-value">92</b></span><input class="setting-range" id="enhance-quality" type="range" min="1" max="100" value="92" /></label>
+                  </div>
+                </section>
+              </div>
+            </div>
+
+            <footer class="batch-footer">
+              <div class="batch-row batch-run-row">
+                <div class="result-info" id="enhance-result">等待添加图片</div>
+                <button class="command-button" id="enhance-run" disabled><i data-lucide="sparkles"></i><span>开始增强</span></button>
+                <button class="export-button" id="enhance-export" disabled><i data-lucide="download"></i><span>导出图片</span></button>
+              </div>
+            </footer>
+          </section>
+        </section>
           </main>
 
           <footer class="status-bar">

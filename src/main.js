@@ -6,6 +6,8 @@ import { workerCall, onWorkerProgress, onWorkerError } from "./runtime.js";
 import { initBatchModule } from "./batch.js";
 import { initSpriteModule } from "./sprite.js";
 import { initAlphaModule } from "./alpha.js";
+import { initEnhanceModule } from "./enhance.js";
+import { initSelectUi } from "./select-ui.js";
 
 createIcons({ icons });
 
@@ -712,3 +714,5 @@ drawPreview();
 initBatchModule();
 initSpriteModule();
 initAlphaModule();
+initEnhanceModule();
+initSelectUi();
