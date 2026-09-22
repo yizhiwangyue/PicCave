@@ -33,3 +33,31 @@ pngquant.exe：
 ----------
 如需升级，直接用新版本覆盖本目录下的 pngquant.exe 即可，无需改动前端代码。
 接口会通过 GET /api/pngquant/health 返回探测到的版本号。
+
+
+AI 图片增强资源
+================
+
+realesrgan_x4.onnx
+  SHA-256: C53C3AB9297389CFA9D0C977A088B558C9709FC31A8B3478B261699A30096618
+  用途   : Real-ESRGAN 4 倍超分辨率模型
+  来源   : 本机 AIphoto 工具；模型架构来自 xinntao/Real-ESRGAN
+  项目   : https://github.com/xinntao/Real-ESRGAN
+  许可   : BSD-3-Clause（使用或分发前仍应核对模型来源与上游许可）
+
+ort-wasm-simd-threaded.asyncify.wasm
+  版本   : ONNX Runtime Web 1.30.0
+  用途   : WebGPU 推理调度运行时
+  来源   : npm 包 onnxruntime-web
+  项目   : https://github.com/microsoft/onnxruntime
+  许可   : MIT
+
+ort-wasm-simd-threaded.wasm
+  版本   : ONNX Runtime Web 1.30.0
+  用途   : 浏览器不支持 WebGPU 时使用的纯 WASM 推理后端
+  来源   : npm 包 onnxruntime-web
+  项目   : https://github.com/microsoft/onnxruntime
+  许可   : MIT
+
+网站不会运行 AIphoto 目录中的 Windows EXE、DLL 或 NCNN 模型。浏览器模块只使用
+上述 ONNX 模型和 ONNX Runtime Web；Vite 构建时会将两项资源作为静态资产输出。
