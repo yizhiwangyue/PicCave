@@ -3,6 +3,8 @@ const ACCEPTED = /\.(png|jpe?g|webp|bmp)$/i;
 const MIME = { png: "image/png", webp: "image/webp", jpg: "image/jpeg" };
 
 const state = {
+  files: [],
+  current: -1,
   file: null,
   sourceUrl: "",
   resultBlob: null,
@@ -200,12 +202,12 @@ async function preloadModel() {
   state.modelLoading = true;
   const localHost = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   ui.engineNote.classList.remove("is-error");
-  ui.engineNote.textContent = localHost ? "正在从本地读取 WebGPU 模型" : "正在加载 WebGPU 模型";
+  ui.engineNote.textContent = localHost ? "正在从本地读取 AI 模型" : "正在加载 AI 模型";
   try {
     const response = await workerCall("init");
     state.modelReady = true;
     showEngineResult(response);
-    setStatus(`AI 模型已加载（${response.engine}）`, 100);
+    setStatus("AI 模型已加载", 100);
   } catch (error) {
     resetWorker();
     ui.engineNote.classList.add("is-error");
@@ -239,60 +241,83 @@ function setBusy(busy) {
   state.busy = busy;
   ui.run.disabled = busy || !state.file;
   ui.export.disabled = busy || !state.resultBlob;
-  ui.clear.disabled = busy || !state.file;
+  ui.clear.disabled = busy || !state.files.length;
   ui.input.disabled = busy;
   ui.tileSize.disabled = busy;
 }
 
-function renderFile() {
-  ui.count.textContent = state.file ? "1 张" : "0 张";
-  if (!state.file) {
+function renderFiles() {
+  ui.count.textContent = `${state.files.length} 张`;
+  if (!state.files.length) {
     ui.list.innerHTML = '<div class="empty-list">尚未添加图片</div>';
     return;
   }
-  const row = document.createElement("div");
-  row.className = "frame-row batch-row-item";
-  row.innerHTML = '<span class="frame-index">1</span><span class="frame-name"></span><span class="batch-row-meta"></span>';
-  row.querySelector(".frame-name").textContent = state.file.name;
-  row.querySelector(".batch-row-meta").textContent = `${state.sourceWidth} × ${state.sourceHeight}`;
-  row.title = `${state.file.name} · ${formatBytes(state.file.size)}`;
-  ui.list.replaceChildren(row);
+  ui.list.replaceChildren(...state.files.map((item, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `frame-row batch-row-item${index === state.current ? " is-active" : ""}`;
+    row.innerHTML = `<span class="frame-index">${index + 1}</span><span class="frame-name"></span><span class="batch-row-meta">${item.width} × ${item.height}</span>`;
+    row.querySelector(".frame-name").textContent = item.file.name;
+    row.title = `${item.file.name} · ${formatBytes(item.file.size)}`;
+    row.addEventListener("click", () => { if (!state.busy) selectFile(index); });
+    return row;
+  }));
 }
 
-async function loadFile(file) {
-  if (!file) return;
-  if (!(file.type?.startsWith("image/") || ACCEPTED.test(file.name))) {
-    setStatus("请选择 PNG、JPG、WebP 或 BMP 图片", 0);
-    return;
-  }
-  try {
-    const bitmap = await createImageBitmap(file);
-    state.sourceWidth = bitmap.width;
-    state.sourceHeight = bitmap.height;
-    bitmap.close();
-  } catch (_) {
-    setStatus("浏览器无法解码这张图片", 0);
-    return;
-  }
-
-  state.file = file;
+function selectFile(index) {
+  const item = state.files[index];
+  if (!item) return;
+  state.current = index;
+  state.file = item.file;
+  state.sourceWidth = item.width;
+  state.sourceHeight = item.height;
   revokeUrl("sourceUrl");
-  state.sourceUrl = URL.createObjectURL(file);
+  state.sourceUrl = URL.createObjectURL(item.file);
   ui.sourcePreview.src = state.sourceUrl;
   ui.sourcePreview.hidden = false;
   ui.sourceStage.classList.add("has-image");
   resetPreviewView("source");
   ui.sourceEmpty.hidden = true;
-  ui.sourceSize.textContent = `${state.sourceWidth} × ${state.sourceHeight}`;
+  ui.sourceSize.textContent = `${item.width} × ${item.height}`;
   clearResult();
-  renderFile();
-  ui.result.textContent = `${file.name} · ${formatBytes(file.size)} · AI 输出 ${state.sourceWidth * 4} × ${state.sourceHeight * 4}`;
+  renderFiles();
+  ui.result.textContent = `${item.file.name} · ${formatBytes(item.file.size)} · AI 输出 ${item.width * 4} × ${item.height * 4}`;
   setBusy(false);
-  setStatus("图片已载入，可以开始增强", 0);
+  setStatus(`已选择 ${item.file.name}，可以开始增强`, 0);
+}
+
+async function addFiles(incoming) {
+  const candidates = incoming.filter((file) => file.type?.startsWith("image/") || ACCEPTED.test(file.name));
+  if (!candidates.length) {
+    setStatus("请选择 PNG、JPG、WebP 或 BMP 图片", 0);
+    return;
+  }
+  const seen = new Set(state.files.map((item) => `${item.file.name}:${item.file.size}:${item.file.lastModified}`));
+  const added = [];
+  for (const file of candidates) {
+    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    if (seen.has(key)) continue;
+    try {
+      const bitmap = await createImageBitmap(file);
+      added.push({ file, width: bitmap.width, height: bitmap.height });
+      bitmap.close();
+      seen.add(key);
+    } catch (_) { /* 跳过浏览器无法解码的文件 */ }
+  }
+  if (!added.length) {
+    setStatus("没有新增可解码图片，重复图片不会再次添加", 0);
+    return;
+  }
+  const firstNew = state.files.length;
+  state.files.push(...added);
+  selectFile(firstNew);
+  setStatus(`已添加 ${added.length} 张图片，共 ${state.files.length} 张`, 0);
 }
 
 function clearFile() {
   revokeUrl("sourceUrl");
+  state.files = [];
+  state.current = -1;
   state.file = null;
   state.sourceWidth = 0;
   state.sourceHeight = 0;
@@ -303,7 +328,7 @@ function clearFile() {
   ui.sourceEmpty.hidden = false;
   ui.sourceSize.textContent = "-";
   clearResult();
-  renderFile();
+  renderFiles();
   ui.result.textContent = "等待添加图片";
   setBusy(false);
   setStatus("已清空 AI 增强素材", 0);
@@ -332,7 +357,7 @@ async function runEnhance() {
     ui.resultSize.textContent = `${response.outputWidth} × ${response.outputHeight}`;
     showEngineResult(response);
     ui.result.textContent = `增强完成 · ${response.outputWidth} × ${response.outputHeight} · ${formatBytes(state.resultBlob.size)}`;
-    setStatus(`AI 增强完成（${response.engine}）`, 100);
+    setStatus("AI 增强完成", 100);
   } catch (error) {
     ui.result.textContent = `增强失败：${error.message}`;
     ui.resultEmpty.querySelector("span").textContent = "处理失败，请调整分块后重试";
@@ -398,7 +423,7 @@ function bindDropZone() {
     ui.drop.classList.remove("is-dragging");
   }));
   ui.drop.addEventListener("drop", (event) => {
-    if (!state.busy) loadFile([...event.dataTransfer.files][0]);
+    if (!state.busy) addFiles([...event.dataTransfer.files]);
   });
   ui.drop.addEventListener("click", () => { if (!state.busy) ui.input.click(); });
   ui.drop.addEventListener("keydown", (event) => {
@@ -409,7 +434,7 @@ function bindDropZone() {
   });
   ui.input.addEventListener("click", (event) => event.stopPropagation());
   ui.input.addEventListener("change", () => {
-    loadFile(ui.input.files[0]);
+    addFiles([...ui.input.files]);
     ui.input.value = "";
   });
 }
@@ -432,7 +457,7 @@ export function initEnhanceModule() {
     ui.qualityRow.hidden = ui.format.value === "png";
   });
   ui.quality.addEventListener("input", () => { ui.qualityValue.textContent = ui.quality.value; });
-  renderFile();
+  renderFiles();
   setBusy(false);
   preloadModel();
 }

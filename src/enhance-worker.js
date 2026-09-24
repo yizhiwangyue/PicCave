@@ -125,10 +125,10 @@ async function createSession(id) {
   const model = new Uint8Array(await fetchWithProgress(id, modelUrl, loadingLabel));
   const gpu = await availableWebGpuAdapter();
   if (!gpu.adapter) throw new Error(gpu.reason || "WebGPU 初始化失败");
-  progress(id, 20, "正在初始化 WebGPU 引擎");
+  progress(id, 20, "正在加载 AI 模型");
   try {
     ortWebgpu.env.webgpu.adapter = gpu.adapter;
-    return await withInitializationStatus(id, "正在初始化 WebGPU 引擎", () =>
+    return await withInitializationStatus(id, "正在加载 AI 模型", () =>
       ortWebgpu.InferenceSession.create(model, {
         executionProviders: ["webgpu"],
         graphOptimizationLevel: "all",

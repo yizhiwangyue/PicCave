@@ -7,6 +7,7 @@ import { initBatchModule } from "./batch.js";
 import { initSpriteModule } from "./sprite.js";
 import { initAlphaModule } from "./alpha.js";
 import { initEnhanceModule } from "./enhance.js";
+import { initExpandModule } from "./expand.js";
 import { initSelectUi } from "./select-ui.js";
 
 createIcons({ icons });
@@ -58,6 +59,21 @@ function formatBytes(bytes) {
 function naturalCompare(a, b) { return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }); }
 function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }
 
+const moduleHeadings = {
+  converter: ["序列图与 GIF 转换", "序列图合成与 GIF 帧提取"],
+  batch: ["图片批量转换", "批量转换格式、压缩图片与组合工作流"],
+  sprite: ["序列图与精灵图转换", "合成精灵图或按网格切分序列帧"],
+  alpha: ["Alpha 图批量转换", "从图片透明通道生成黑白 Alpha 图"],
+  expand: ["透明图片扩边", "向透明区域延伸边缘颜色"],
+  enhance: ["AI 图片画质增强", "使用 AI 模型提升图片清晰度"],
+};
+
+function setWorkspaceHeading(module) {
+  const heading = moduleHeadings[module] || moduleHeadings.converter;
+  $("workspace-title").textContent = heading[0];
+  $("workspace-subtitle").textContent = heading[1];
+}
+
 async function initializeRuntime() {
   setStatus("正在初始化，首次加载约需数秒", 3);
   try {
@@ -72,8 +88,16 @@ async function initializeRuntime() {
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("is-active", item === tab));
   const selected = tab.dataset.tab;
+  document.querySelector(".content-shell").classList.toggle("is-extract", selected === "extract");
   $("sequence-workspace").classList.toggle("is-active", selected === "sequence");
   $("extract-workspace").classList.toggle("is-active", selected === "extract");
+  if (selected === "sequence") {
+    $("workspace-title").textContent = "序列图转 GIF";
+    $("workspace-subtitle").textContent = "将序列图片合成为透明 GIF";
+  } else {
+    $("workspace-title").textContent = "GIF 转序列图";
+    $("workspace-subtitle").textContent = "提取 GIF 动画中的每一帧";
+  }
   if (selected !== "sequence") stopPlayback();
   requestAnimationFrame(drawPreview);
 }));
@@ -90,9 +114,11 @@ document.querySelectorAll(".module-nav").forEach((item) => item.addEventListener
   // 只 toggle 自己那个会让上一个模块的类残留，结果两个工作区同时显示。
   // 新增模块时：这里补一行 toggle，CSS 侧把 .is-xxx 加进成组选择器（两处都要改）。
   const shell = document.querySelector(".content-shell");
+  setWorkspaceHeading(module);
   shell.classList.toggle("is-batch", module === "batch");
   shell.classList.toggle("is-sprite", module === "sprite");
   shell.classList.toggle("is-alpha", module === "alpha");
+  shell.classList.toggle("is-expand", module === "expand");
   shell.classList.toggle("is-enhance", module === "enhance");
   if (module === "converter") {
     setStatus("序列图与 GIF 转换", 0);
@@ -102,6 +128,7 @@ document.querySelectorAll(".module-nav").forEach((item) => item.addEventListener
     // batch 分支历史上不写 setStatus，保持原样别动
     if (module === "sprite") setStatus("序列图与精灵图转换", 0);
     if (module === "alpha") setStatus("Alpha 图批量转换", 0);
+    if (module === "expand") setStatus("透明图片扩边", 0);
     if (module === "enhance") setStatus("AI 图片画质增强", 0);
   }
 }));
@@ -714,5 +741,6 @@ drawPreview();
 initBatchModule();
 initSpriteModule();
 initAlphaModule();
+initExpandModule();
 initEnhanceModule();
 initSelectUi();
