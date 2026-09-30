@@ -1,6 +1,7 @@
 import * as ortWebgpu from "onnxruntime-web/webgpu";
-import modelUrl from "../Packages/realesrgan_x4.onnx?url";
-import webgpuWasmUrl from "../Packages/ort-wasm-simd-threaded.asyncify.wasm?url";
+
+const modelUrl = "https://hf-mirror.com/yizhiwangyue/PicCave-assets/resolve/main/realesrgan_x4_fp16.onnx";
+const webgpuWasmUrl = "https://hf-mirror.com/yizhiwangyue/PicCave-assets/resolve/main/ort-wasm-simd-threaded.asyncify.wasm";
 
 const MODEL_SCALE = 4;
 const TILE_PAD = 32;

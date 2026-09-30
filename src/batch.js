@@ -628,12 +628,14 @@ export function initBatchModule() {
 
   const navButton = document.querySelector('.module-nav[data-module="batch"]');
   if (navButton) {
-    navButton.addEventListener("click", () => {
+    const ensureBatchEngine = () => {
       if (!state.loaded) {
         state.loaded = true;
         ensureEngine();
       }
-    });
+    };
+    navButton.addEventListener("click", ensureBatchEngine);
+    if (navButton.classList.contains("is-active")) ensureBatchEngine();
   }
 
   renderNodes();
