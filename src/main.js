@@ -9,6 +9,28 @@ import { initAlphaModule } from "./alpha.js";
 import { initEnhanceModule } from "./enhance.js";
 import { initExpandModule } from "./expand.js";
 import { initSelectUi } from "./select-ui.js";
+import { initI18n } from "./i18n.js";
+
+const THEME_STORAGE_KEY = "piccave-theme";
+const themeToggle = document.getElementById("theme-toggle");
+
+function applyTheme(theme, persist = true) {
+  const nextTheme = theme === "light" ? "light" : "dark";
+  const isLight = nextTheme === "light";
+  document.documentElement.dataset.theme = nextTheme;
+  themeToggle?.setAttribute("aria-pressed", String(isLight));
+  themeToggle?.setAttribute("aria-label", isLight ? "切换到暗色主题" : "切换到亮色主题");
+  if (themeToggle) themeToggle.title = isLight ? "切换到暗色主题" : "切换到亮色主题";
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", isLight ? "#f4f3f7" : "#121015");
+  if (persist) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, nextTheme); } catch { /* 浏览器禁用本地存储时仍可切换当前页面。 */ }
+  }
+}
+
+applyTheme(document.documentElement.dataset.theme, false);
+themeToggle?.addEventListener("click", () => {
+  applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+});
 
 createIcons({ icons });
 
@@ -693,6 +715,7 @@ ui.extractButton.addEventListener("click", () => runAction(async () => {
   const zip = new JSZip();
   const usedFolders = new Set();
   let totalFrames = 0;
+  let singleImage = null;
 
   setBusy(true);
   try {
@@ -713,12 +736,24 @@ ui.extractButton.addEventListener("click", () => runAction(async () => {
         usedFolders.add(name);
         target = zip.folder(name);
       }
-      response.files.forEach((file) => target.file(file.name, file.buffer));
+      response.files.forEach((file) => {
+        singleImage = file;
+        target.file(file.name, file.buffer);
+      });
       if (ui.extractTiming.checked) target.file("timing.json", response.timing);
       item.error = "";
       item.frames = response.files.length;
       totalFrames += response.files.length;
       renderGifList();
+    }
+
+    if (totalFrames === 1) {
+      const mime = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" }[settings.format.toLowerCase()];
+      const blob = new Blob([singleImage.buffer], { type: mime || "application/octet-stream" });
+      downloadBlob(blob, singleImage.name);
+      ui.extractResult.textContent = `1 个 GIF · 1 帧 · ${formatBytes(blob.size)}`;
+      setProgress(100, "序列图已导出：1 帧");
+      return;
     }
 
     setProgress(82, "正在打包 ZIP");
@@ -744,3 +779,4 @@ initAlphaModule();
 initExpandModule();
 initEnhanceModule();
 initSelectUi();
+initI18n(document.getElementById("language-toggle"));

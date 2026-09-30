@@ -476,12 +476,25 @@ async function run() {
   }
 }
 
-async function exportZip() {
+async function exportResults() {
   const done = state.results.filter((result) => !result.error);
   if (!done.length) return;
   setBusy(true);
-  setStatus("正在打包 ZIP", 80);
   try {
+    if (done.length === 1) {
+      const result = done[0];
+      const blob = new Blob([result.buffer]);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = result.name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      setStatus(`已导出 ${result.name} · ${formatBytes(blob.size)}`, 100);
+      return;
+    }
+
+    setStatus("正在打包 ZIP", 80);
     const zip = new JSZip();
     done.forEach((result) => zip.file(result.name, result.buffer));
     const blob = await zip.generateAsync(
@@ -496,7 +509,7 @@ async function exportZip() {
     setTimeout(() => URL.revokeObjectURL(url), 2000);
     setStatus(`已导出 ${done.length} 张 · ZIP ${formatBytes(blob.size)}`, 100);
   } catch (error) {
-    setStatus(`打包失败：${error.message}`, 0);
+    setStatus(`导出失败：${error.message}`, 0);
   } finally {
     setBusy(false);
   }
@@ -624,7 +637,7 @@ export function initBatchModule() {
   });
 
   ui.run.addEventListener("click", run);
-  ui.export.addEventListener("click", exportZip);
+  ui.export.addEventListener("click", exportResults);
 
   const navButton = document.querySelector('.module-nav[data-module="batch"]');
   if (navButton) {

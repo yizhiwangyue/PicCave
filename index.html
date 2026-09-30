@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="在浏览器本地完成序列图与 GIF 转换" />
     <meta name="theme-color" content="#121015" />
+    <script>
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("piccave-theme") === "light" ? "light" : "dark";
+        const savedLanguage = localStorage.getItem("piccave-language") === "en" ? "en" : "zh";
+        document.documentElement.dataset.language = savedLanguage;
+        document.documentElement.lang = savedLanguage === "en" ? "en" : "zh-CN";
+      } catch {
+        document.documentElement.dataset.theme = "dark";
+        document.documentElement.dataset.language = "zh";
+      }
+    </script>
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
@@ -57,6 +68,14 @@
               <span id="workspace-subtitle">批量转换格式、压缩图片与组合工作流</span>
             </div>
             <span class="header-browser-tip">建议使用 Edge 或 Chrome 浏览器</span>
+            <button class="language-toggle" id="language-toggle" type="button" aria-label="切换到英文" title="切换到英文">
+              <i data-lucide="languages" aria-hidden="true"></i>
+            </button>
+            <button class="theme-toggle" id="theme-toggle" type="button" aria-label="切换到亮色主题" aria-pressed="false" title="切换到亮色主题">
+              <span class="theme-toggle-thumb" aria-hidden="true"></span>
+              <i class="theme-toggle-moon" data-lucide="moon" aria-hidden="true"></i>
+              <i class="theme-toggle-sun" data-lucide="sun" aria-hidden="true"></i>
+            </button>
           </header>
           <nav class="tabs" aria-label="转换模块">
             <button class="tab is-active" data-tab="sequence"><i data-lucide="images"></i>序列图 → GIF</button>
@@ -236,7 +255,7 @@
             </div>
             <footer class="extract-footer">
               <div class="result-info" id="extract-result">等待添加 GIF</div>
-              <button class="export-button" id="extract-button" disabled><i data-lucide="archive"></i><span>导出</span></button>
+              <button class="export-button" id="extract-button" disabled><i data-lucide="download"></i><span>导出</span></button>
             </footer>
           </section>
         </section>
@@ -342,7 +361,7 @@
               <div class="batch-row batch-run-row">
                 <div class="result-info" id="batch-result">等待添加图片</div>
                 <button class="command-button" id="batch-run" disabled><i data-lucide="play"></i><span>开始处理</span></button>
-                <button class="export-button" id="batch-export" disabled><i data-lucide="archive"></i><span>导出</span></button>
+                <button class="export-button" id="batch-export" disabled><i data-lucide="download"></i><span>导出</span></button>
               </div>
             </footer>
           </section>
@@ -542,7 +561,7 @@
               <div class="batch-row batch-run-row">
                 <div class="result-info" id="alpha-result">等待添加图片</div>
                 <button class="command-button" id="alpha-run" disabled><i data-lucide="play"></i><span>开始转换</span></button>
-                <button class="export-button" id="alpha-export" disabled><i data-lucide="archive"></i><span>导出</span></button>
+                <button class="export-button" id="alpha-export" disabled><i data-lucide="download"></i><span>导出</span></button>
               </div>
             </footer>
           </section>

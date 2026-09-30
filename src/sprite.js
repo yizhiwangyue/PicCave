@@ -515,6 +515,17 @@ async function runUnpack() {
       setStatus(`正在切分序列帧（${index + 1}/${jobs.length}）`, 6 + ((index + 1) / jobs.length) * 54);
     }
 
+    if (totalFrames === 1) {
+      const first = outputs[0];
+      const file = first.files[0];
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      const blob = new Blob([file.buffer], { type: MIME[extension] || "application/octet-stream" });
+      downloadBlob(blob, file.name);
+      ui.result.textContent = `切分完成：1 帧 · ${first.frameW}×${first.frameH} · ${formatBytes(blob.size)}`;
+      setStatus("序列帧已导出：1 张", 100);
+      return;
+    }
+
     setStatus("正在打包 ZIP", 66);
     const zip = new JSZip();
     const used = new Set();

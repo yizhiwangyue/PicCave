@@ -442,38 +442,47 @@ function outputName(original, extension, index, naming) {
   return `${stem}.${extension}`;
 }
 
-async function exportZip() {
+async function exportResults() {
   if (state.busy) return;
   const naming = readNaming();
   setBusy(true);
-  setStatus("正在打包 ZIP", 88);
   try {
-    const zip = new JSZip();
     const used = new Set();
-    let count = 0;
+    const files = [];
     // 用素材序号（而非「成功项序号」）命名，与左侧列表的编号一一对应，
     // 中间有失败项时编号会留空档，反而一眼能看出是第几张出的问题。
     for (const [index, item] of state.items.entries()) {
       if (!item.result) continue;
       // 扩展名取结果自身的格式，不取当前下拉框 —— 参数改过之后导出才不会名实不符
       const name = uniqueName(outputName(item.file.name, item.result.format, index, naming), used);
-      zip.file(name, await item.result.blob.arrayBuffer());
-      count += 1;
+      files.push({ name, blob: item.result.blob });
     }
-    if (!count) {
+    if (!files.length) {
       setStatus("还没有可导出的结果", 0);
       return;
     }
+
+    if (files.length === 1) {
+      const file = files[0];
+      downloadBlob(file.blob, file.name);
+      ui.result.textContent = `已导出 ${file.name} · ${formatBytes(file.blob.size)}`;
+      setStatus("已导出 1 张", 100);
+      return;
+    }
+
+    setStatus("正在打包 ZIP", 88);
+    const zip = new JSZip();
+    for (const file of files) zip.file(file.name, await file.blob.arrayBuffer());
     const blob = await zip.generateAsync(
       { type: "blob", compression: "DEFLATE", compressionOptions: { level: 3 } },
       (meta) => setStatus("正在打包 ZIP", 88 + meta.percent * 0.11),
     );
     downloadBlob(blob, `alpha_masks_${timestamp()}.zip`);
-    ui.result.textContent = `已导出 ${count} 张蒙版 · ZIP ${formatBytes(blob.size)}`;
-    setStatus(`已导出 ${count} 张`, 100);
+    ui.result.textContent = `已导出 ${files.length} 张蒙版 · ZIP ${formatBytes(blob.size)}`;
+    setStatus(`已导出 ${files.length} 张`, 100);
   } catch (error) {
-    setStatus(`打包失败：${error.message}`, 0);
-    console.error("Alpha 蒙版打包失败：", error);
+    setStatus(`导出失败：${error.message}`, 0);
+    console.error("Alpha 蒙版导出失败：", error);
   } finally {
     setBusy(false);
   }
@@ -644,7 +653,7 @@ export function initAlphaModule() {
   ui.nameValue.addEventListener("input", () => { namingDraft[namingMode] = ui.nameValue.value; });
 
   ui.run.addEventListener("click", run);
-  ui.export.addEventListener("click", exportZip);
+  ui.export.addEventListener("click", exportResults);
 
   /* 工作区是 display:none 时量不到尺寸，切回本模块必须重画。
      ResizeObserver 一并兜住「窗口缩放」与「从别的模块切回来」两种情况 —— 
