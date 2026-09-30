@@ -12,7 +12,6 @@ const wasmThreads = self.crossOriginIsolated
   : 1;
 ortWebgpu.env.wasm.proxy = false;
 ortWebgpu.env.wasm.numThreads = wasmThreads;
-ortWebgpu.env.wasm.wasmPaths = { wasm: webgpuWasmUrl };
 ortWebgpu.env.webgpu.powerPreference = "high-performance";
 
 let sessionPromise = null;
@@ -23,8 +22,13 @@ function progress(id, value, label) {
   self.postMessage({ type: "progress", id, value, label });
 }
 
-async function fetchWithProgress(id, url, loadingLabel) {
-  const response = await fetch(url);
+async function fetchWithProgress(id, url, loadingLabel, progressStart, progressEnd) {
+  let response;
+  try {
+    response = await fetch(url, { referrerPolicy: "no-referrer" });
+  } catch (error) {
+    throw new Error(`${loadingLabel}失败：${errorMessage(error)}`);
+  }
   if (!response.ok) throw new Error(`模型下载失败（HTTP ${response.status}）`);
   const total = Number(response.headers.get("content-length")) || 0;
   if (!response.body || !total) return response.arrayBuffer();
@@ -37,7 +41,11 @@ async function fetchWithProgress(id, url, loadingLabel) {
     if (done) break;
     chunks.push(value);
     received += value.byteLength;
-    progress(id, 2 + (received / total) * 17, `${loadingLabel} ${Math.round((received / total) * 100)}%`);
+    progress(
+      id,
+      progressStart + (received / total) * (progressEnd - progressStart),
+      `${loadingLabel} ${Math.round((received / total) * 100)}%`,
+    );
   }
   const merged = new Uint8Array(received);
   let offset = 0;
@@ -123,11 +131,17 @@ async function createSession(id) {
   const localHost = ["localhost", "127.0.0.1", "::1"].includes(self.location.hostname);
   const loadingLabel = localHost ? "正在从本地读取 AI 模型" : "正在加载 AI 模型";
   progress(id, 2, loadingLabel);
-  const model = new Uint8Array(await fetchWithProgress(id, modelUrl, loadingLabel));
+  const model = new Uint8Array(await fetchWithProgress(id, modelUrl, loadingLabel, 2, 12));
+  const wasm = await fetchWithProgress(id, webgpuWasmUrl, "正在加载运行组件", 12, 19);
+  const wasmObjectUrl = URL.createObjectURL(new Blob([wasm], { type: "application/wasm" }));
   const gpu = await availableWebGpuAdapter();
-  if (!gpu.adapter) throw new Error(gpu.reason || "WebGPU 初始化失败");
+  if (!gpu.adapter) {
+    URL.revokeObjectURL(wasmObjectUrl);
+    throw new Error(gpu.reason || "WebGPU 初始化失败");
+  }
   progress(id, 20, "正在加载 AI 模型");
   try {
+    ortWebgpu.env.wasm.wasmPaths = { wasm: wasmObjectUrl };
     ortWebgpu.env.webgpu.adapter = gpu.adapter;
     return await withInitializationStatus(id, "正在加载 AI 模型", () =>
       ortWebgpu.InferenceSession.create(model, {
@@ -137,6 +151,8 @@ async function createSession(id) {
       }));
   } catch (error) {
     throw new Error(`WebGPU 引擎初始化失败：${errorMessage(error)}`);
+  } finally {
+    URL.revokeObjectURL(wasmObjectUrl);
   }
 }
 
