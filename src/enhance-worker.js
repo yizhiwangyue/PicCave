@@ -1,11 +1,14 @@
 import * as ortWebgpu from "onnxruntime-web/webgpu";
+import webgpuWasmUrl from "../Packages/ort-wasm-simd-threaded.asyncify.wasm?url";
 
 const modelUrl = "https://hf-mirror.com/yizhiwangyue/PicCave-assets/resolve/main/realesrgan_x4_fp16.onnx";
-const webgpuWasmUrl = "https://hf-mirror.com/yizhiwangyue/PicCave-assets/resolve/main/ort-wasm-simd-threaded.asyncify.wasm";
 
 const MODEL_SCALE = 4;
 const TILE_PAD = 32;
 const MAX_OUTPUT_PIXELS = 64_000_000;
+const ASSET_CACHE_NAME = "piccave-ai-assets-v1";
+const MODEL_DOWNLOAD_BYTES = 35_331_831;
+const WASM_DOWNLOAD_BYTES = 6_791_325;
 
 const wasmThreads = self.crossOriginIsolated
   ? Math.min(4, Math.max(1, Math.ceil((self.navigator.hardwareConcurrency || 2) / 2)))
@@ -22,16 +25,38 @@ function progress(id, value, label) {
   self.postMessage({ type: "progress", id, value, label });
 }
 
-async function fetchWithProgress(id, url, loadingLabel, progressStart, progressEnd) {
+async function fetchWithProgress(url, loadingLabel, onProgress) {
+  let assetCache = null;
+  if ("caches" in self) {
+    try {
+      assetCache = await caches.open(ASSET_CACHE_NAME);
+      const cached = await assetCache.match(url);
+      if (cached) {
+        onProgress(1, true);
+        return cached.arrayBuffer();
+      }
+    } catch (_) {
+      assetCache = null;
+    }
+  }
+
   let response;
   try {
     response = await fetch(url, { referrerPolicy: "no-referrer" });
   } catch (error) {
     throw new Error(`${loadingLabel}失败：${errorMessage(error)}`);
   }
-  if (!response.ok) throw new Error(`模型下载失败（HTTP ${response.status}）`);
+  if (!response.ok) throw new Error(`${loadingLabel}失败（HTTP ${response.status}）`);
+  const cacheWrite = assetCache
+    ? assetCache.put(url, response.clone()).catch(() => {})
+    : Promise.resolve();
   const total = Number(response.headers.get("content-length")) || 0;
-  if (!response.body || !total) return response.arrayBuffer();
+  if (!response.body || !total) {
+    const buffer = await response.arrayBuffer();
+    onProgress(1, false);
+    await cacheWrite;
+    return buffer;
+  }
 
   const reader = response.body.getReader();
   const chunks = [];
@@ -41,11 +66,7 @@ async function fetchWithProgress(id, url, loadingLabel, progressStart, progressE
     if (done) break;
     chunks.push(value);
     received += value.byteLength;
-    progress(
-      id,
-      progressStart + (received / total) * (progressEnd - progressStart),
-      `${loadingLabel} ${Math.round((received / total) * 100)}%`,
-    );
+    onProgress(Math.min(1, received / total), false);
   }
   const merged = new Uint8Array(received);
   let offset = 0;
@@ -53,6 +74,7 @@ async function fetchWithProgress(id, url, loadingLabel, progressStart, progressE
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   });
+  await cacheWrite;
   return merged.buffer;
 }
 
@@ -128,11 +150,29 @@ async function availableWebGpuAdapter() {
 }
 
 async function createSession(id) {
-  const localHost = ["localhost", "127.0.0.1", "::1"].includes(self.location.hostname);
-  const loadingLabel = localHost ? "正在从本地读取 AI 模型" : "正在加载 AI 模型";
+  const loadingLabel = "正在加载 AI 模型";
+  const downloadProgress = { model: 0, wasm: 0 };
+  const totalDownloadBytes = MODEL_DOWNLOAD_BYTES + WASM_DOWNLOAD_BYTES;
+  const reportDownload = (key, label) => (ratio, cached) => {
+    downloadProgress[key] = ratio;
+    const completedBytes =
+      downloadProgress.model * MODEL_DOWNLOAD_BYTES + downloadProgress.wasm * WASM_DOWNLOAD_BYTES;
+    progress(
+      id,
+      2 + (completedBytes / totalDownloadBytes) * 17,
+      cached ? `${label}（已缓存）` : `${label} ${Math.round(ratio * 100)}%`,
+    );
+  };
   progress(id, 2, loadingLabel);
-  const model = new Uint8Array(await fetchWithProgress(id, modelUrl, loadingLabel, 2, 12));
-  const wasm = await fetchWithProgress(id, webgpuWasmUrl, "正在加载运行组件", 12, 19);
+  const [modelBuffer, wasm] = await Promise.all([
+    fetchWithProgress(modelUrl, loadingLabel, reportDownload("model", loadingLabel)),
+    fetchWithProgress(
+      webgpuWasmUrl,
+      "正在加载运行组件",
+      reportDownload("wasm", "正在加载运行组件"),
+    ),
+  ]);
+  const model = new Uint8Array(modelBuffer);
   const wasmObjectUrl = URL.createObjectURL(new Blob([wasm], { type: "application/wasm" }));
   const gpu = await availableWebGpuAdapter();
   if (!gpu.adapter) {
