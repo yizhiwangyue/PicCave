@@ -4,15 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="在浏览器本地完成序列图与 GIF 转换" />
-    <meta name="theme-color" content="#121015" />
+    <meta name="theme-color" content="#f4f3f7" />
     <script>
       try {
-        document.documentElement.dataset.theme = localStorage.getItem("piccave-theme") === "light" ? "light" : "dark";
+        document.documentElement.dataset.theme = localStorage.getItem("piccave-theme") === "dark" ? "dark" : "light";
         const savedLanguage = localStorage.getItem("piccave-language") === "en" ? "en" : "zh";
         document.documentElement.dataset.language = savedLanguage;
         document.documentElement.lang = savedLanguage === "en" ? "en" : "zh-CN";
       } catch {
-        document.documentElement.dataset.theme = "dark";
+        document.documentElement.dataset.theme = "light";
         document.documentElement.dataset.language = "zh";
       }
     </script>
@@ -52,6 +52,10 @@
           <button class="module-nav" type="button" data-module="expand">
             <i data-lucide="expand"></i>
             <span>透明图片扩边</span>
+          </button>
+          <button class="module-nav" type="button" data-module="svg">
+            <i data-lucide="pen-tool"></i>
+            <span>图片转矢量SVG</span>
           </button>
           <button class="module-nav" type="button" data-module="enhance">
             <i data-lucide="wand-sparkles"></i>
@@ -293,7 +297,10 @@
             <div class="batch-panels">
               <div class="batch-panel is-active" data-batch-panel="convert">
                 <div class="batch-section">
-                  <h3>尺寸与格式</h3>
+                  <div class="batch-section-heading">
+                    <h3>尺寸与格式</h3>
+                    <span class="format-support">支持导入 PNG、JPG、WebP、BMP、TIFF、TGA、GIF、ICO、PSD、DDS</span>
+                  </div>
                   <div class="batch-row">
                     <label class="check-label"><input id="batch-keep-res" type="checkbox" /><span>保持原分辨率</span></label>
                   </div>
@@ -323,9 +330,12 @@
                 <div class="batch-section">
                   <p class="batch-note"><i data-lucide="info"></i><span>功能说明：大幅减小体积，保留透明度，主要针对 PNG 或 JPG</span></p>
                   <div class="compress-grid">
-                    <label class="batch-field"><span>PNG 质量</span>
+                    <label class="batch-field"><span>PNG 质量 <b id="batch-png-quality-value">80-95</b></span>
                       <div class="compress-png-row">
-                        <input id="batch-png-quality" type="text" value="80-95" inputmode="numeric" spellcheck="false" autocomplete="off" />
+                        <div class="dual-range" id="batch-png-quality-range" style="--range-min: 80%; --range-max: 95%;">
+                          <input class="dual-range-input dual-range-min" id="batch-png-quality-min" type="range" min="0" max="100" value="80" aria-label="PNG 最低质量" />
+                          <input class="dual-range-input dual-range-max" id="batch-png-quality-max" type="range" min="0" max="100" value="95" aria-label="PNG 最高质量" />
+                        </div>
                         <em class="compress-hint">（追求极致画质，可设置为 80-95；追求极致体积，可设置为 50-70）</em>
                       </div>
                     </label>
@@ -337,7 +347,10 @@
 
               <div class="batch-panel" data-batch-panel="workflow">
                 <div class="batch-section">
-                  <h3>处理链</h3>
+                  <div class="batch-section-heading">
+                    <h3>处理链</h3>
+                    <span class="workflow-help">按需添加格式转换或极致压缩节点，节点从上到下依次执行，可用箭头调整顺序</span>
+                  </div>
                   <div class="batch-node-actions">
                     <button class="small-button accent" type="button" id="batch-add-convert"><i data-lucide="plus"></i>格式转换</button>
                     <button class="small-button accent" type="button" id="batch-add-compress"><i data-lucide="plus"></i>极致压缩</button>
@@ -588,12 +601,6 @@
 
           <section class="enhance-main">
             <div class="enhance-content">
-              <div class="enhance-heading">
-                <div>
-                  <h2>AI 图片画质增强</h2>
-                </div>
-              </div>
-
               <div class="enhance-compare">
                 <figure class="enhance-view">
                   <figcaption><span>原图</span><b id="enhance-source-size">-</b></figcaption>
@@ -670,7 +677,6 @@
 
           <section class="expand-main">
             <div class="expand-content">
-              <div class="expand-heading"><h2>透明图片扩边</h2></div>
               <div class="expand-compare">
                 <figure class="expand-view">
                   <figcaption><span>原图</span><b id="expand-source-size">-</b></figcaption>
@@ -714,6 +720,105 @@
                 <div class="result-info" id="expand-result">等待添加透明图片</div>
                 <button class="command-button" id="expand-run" disabled><i data-lucide="refresh-cw"></i><span>重新处理</span></button>
                 <button class="export-button" id="expand-export" disabled><i data-lucide="download"></i><span>导出 PNG</span></button>
+              </div>
+            </footer>
+          </section>
+        </section>
+
+        <section class="svg-workspace" id="svg-workspace" aria-label="图片转矢量SVG">
+          <aside class="file-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow">素材</span>
+                <h2>位图图片</h2>
+                <span id="svg-count">0 张</span>
+              </div>
+              <button class="icon-button" id="svg-clear" type="button" title="清空图片" disabled><i data-lucide="trash-2"></i></button>
+            </div>
+            <div class="drop-zone" id="svg-drop" role="button" tabindex="0">
+              <input id="svg-input" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,image/gif" multiple />
+              <i data-lucide="image-up"></i>
+              <strong>添加位图图片</strong>
+              <span>点击选择，或直接拖放到这里</span>
+            </div>
+            <div class="svg-format-note">支持 PNG、JPG、WebP、BMP、GIF</div>
+            <div class="file-list" id="svg-list"><div class="empty-list">尚未添加图片</div></div>
+          </aside>
+
+          <section class="svg-main">
+            <div class="svg-content">
+              <div class="svg-compare">
+                <figure class="svg-view">
+                  <figcaption><span>原图</span><b id="svg-source-size">-</b></figcaption>
+                  <div class="svg-stage checkerboard" id="svg-source-stage">
+                    <img id="svg-source-preview" alt="原图预览" hidden />
+                    <div class="svg-empty" id="svg-source-empty"><i data-lucide="image-plus"></i><span>等待添加图片</span></div>
+                  </div>
+                </figure>
+                <figure class="svg-view">
+                  <figcaption><span>矢量结果</span><b id="svg-result-size">-</b></figcaption>
+                  <div class="svg-stage checkerboard" id="svg-result-stage">
+                    <svg id="svg-result-preview" xmlns="http://www.w3.org/2000/svg" aria-label="矢量结果预览" hidden></svg>
+                    <div class="svg-empty" id="svg-result-empty"><i data-lucide="pen-tool"></i><span>等待开始转换</span></div>
+                  </div>
+                </figure>
+              </div>
+
+              <div class="svg-settings">
+                <section>
+                  <h3>转换方式</h3>
+                  <div class="batch-grid">
+                    <label class="batch-field"><span>图像模式</span>
+                      <select id="svg-clustering">
+                        <option value="color" selected>彩色</option>
+                        <option value="binary">黑白</option>
+                      </select>
+                    </label>
+                    <label class="batch-field" id="svg-hierarchical-field"><span>图层方式</span>
+                      <select id="svg-hierarchical">
+                        <option value="stacked" selected>堆叠（边缘更稳定）</option>
+                        <option value="cutout">拼合（减少重叠）</option>
+                      </select>
+                    </label>
+                    <label class="batch-field"><span>曲线路径</span>
+                      <select id="svg-mode">
+                        <option value="spline" selected>平滑曲线</option>
+                        <option value="polygon">多边形</option>
+                        <option value="none">像素块</option>
+                      </select>
+                    </label>
+                    <label class="batch-field"><span>参数预设</span>
+                      <select id="svg-preset">
+                        <option value="illustration" selected>插画 / 图标</option>
+                        <option value="photo">照片</option>
+                        <option value="pixel">像素画</option>
+                        <option value="custom">自定义</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
+                <section>
+                  <h3>细节参数</h3>
+                  <div class="svg-range-grid">
+                    <label><span>杂点过滤 <b id="svg-speckle-value">4</b></span><input class="setting-range" id="svg-speckle" type="range" min="0" max="16" value="4" /></label>
+                    <label class="svg-color-option"><span>颜色精度 <b id="svg-color-value">6</b></span><input class="setting-range" id="svg-color-precision" type="range" min="1" max="8" value="6" /></label>
+                    <label class="svg-color-option"><span>图层差异 <b id="svg-layer-value">16</b></span><input class="setting-range" id="svg-layer-difference" type="range" min="0" max="64" value="16" /></label>
+                    <label class="svg-spline-option"><span>圆角阈值 <b id="svg-corner-value">60°</b></span><input class="setting-range" id="svg-corner" type="range" min="0" max="180" value="60" /></label>
+                    <label class="svg-spline-option"><span>线段长度 <b id="svg-length-value">4</b></span><input class="setting-range" id="svg-length" type="range" min="0.5" max="10" step="0.5" value="4" /></label>
+                    <label class="svg-spline-option"><span>拼接阈值 <b id="svg-splice-value">45°</b></span><input class="setting-range" id="svg-splice" type="range" min="0" max="180" value="45" /></label>
+                    <label><span>路径精度 <b id="svg-path-value">8</b></span><input class="setting-range" id="svg-path-precision" type="range" min="0" max="10" value="8" /></label>
+                  </div>
+                </section>
+              </div>
+
+              <canvas id="svg-work-canvas" hidden></canvas>
+              <svg id="svg-work-output" xmlns="http://www.w3.org/2000/svg" hidden></svg>
+            </div>
+            <footer class="batch-footer">
+              <div class="batch-row batch-run-row">
+                <div class="result-info" id="svg-result">等待添加图片</div>
+                <button class="command-button" id="svg-run" type="button" disabled><i data-lucide="play"></i><span>开始转换</span></button>
+                <button class="export-button" id="svg-export" type="button" disabled><i data-lucide="download"></i><span>导出 SVG</span></button>
               </div>
             </footer>
           </section>

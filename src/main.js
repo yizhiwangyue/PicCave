@@ -8,6 +8,7 @@ import { initSpriteModule } from "./sprite.js";
 import { initAlphaModule } from "./alpha.js";
 import { initEnhanceModule } from "./enhance.js";
 import { initExpandModule } from "./expand.js";
+import { initSvgModule } from "./svg.js";
 import { initSelectUi } from "./select-ui.js";
 import { initI18n } from "./i18n.js";
 
@@ -87,6 +88,7 @@ const moduleHeadings = {
   sprite: ["序列图与精灵图转换", "合成精灵图或按网格切分序列帧"],
   alpha: ["Alpha 图批量转换", "从图片透明通道生成黑白 Alpha 图"],
   expand: ["透明图片扩边", "向透明区域延伸边缘颜色"],
+  svg: ["图片转矢量SVG", ""],
   enhance: ["AI 图片画质增强", "使用 AI 模型提升图片清晰度"],
 };
 
@@ -141,6 +143,7 @@ document.querySelectorAll(".module-nav").forEach((item) => item.addEventListener
   shell.classList.toggle("is-sprite", module === "sprite");
   shell.classList.toggle("is-alpha", module === "alpha");
   shell.classList.toggle("is-expand", module === "expand");
+  shell.classList.toggle("is-svg", module === "svg");
   shell.classList.toggle("is-enhance", module === "enhance");
   if (module === "converter") {
     setStatus("序列图与 GIF 转换", 0);
@@ -151,6 +154,7 @@ document.querySelectorAll(".module-nav").forEach((item) => item.addEventListener
     if (module === "sprite") setStatus("序列图与精灵图转换", 0);
     if (module === "alpha") setStatus("Alpha 图批量转换", 0);
     if (module === "expand") setStatus("透明图片扩边", 0);
+    if (module === "svg") setStatus("图片转矢量SVG", 0);
     if (module === "enhance") setStatus("AI 图片画质增强", 0);
   }
 }));
@@ -777,6 +781,7 @@ initBatchModule();
 initSpriteModule();
 initAlphaModule();
 initExpandModule();
+initSvgModule();
 initEnhanceModule();
 initSelectUi();
 initI18n(document.getElementById("language-toggle"));
