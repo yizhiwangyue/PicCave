@@ -86,6 +86,17 @@ function getWasmRuntime() {
 /* ------------------------------ 引擎探测 ------------------------------ */
 
 async function detectEngine() {
+  // pngquant bridge 只由本地 Vite 服务提供；静态部署直接使用 WASM，避免线上产生预期内的 404。
+  if (!["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
+    return {
+      mode: "wasm",
+      label: "本地处理引擎",
+      version: "",
+      binary: "",
+      features: null,
+      reason: "static-host",
+    };
+  }
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);

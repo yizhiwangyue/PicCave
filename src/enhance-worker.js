@@ -98,12 +98,10 @@ function errorMessage(error) {
 }
 
 async function normalizeWebGpuAdapter(adapter) {
-  if (adapter.info) return adapter;
-
-  let legacyInfo;
+  let legacyInfo = adapter.info;
   if (typeof adapter.requestAdapterInfo === "function") {
     try {
-      legacyInfo = await adapter.requestAdapterInfo();
+      legacyInfo ||= await adapter.requestAdapterInfo();
     } catch (_) {
       // 部分旧版 Chromium 暴露了方法但会拒绝调用，继续使用空信息兼容。
     }
@@ -116,14 +114,39 @@ async function normalizeWebGpuAdapter(adapter) {
     subgroupMinSize: Number(legacyInfo?.subgroupMinSize) || 0,
     subgroupMaxSize: Number(legacyInfo?.subgroupMaxSize) || 0,
     isFallbackAdapter: Boolean(legacyInfo?.isFallbackAdapter),
-    subgroupMatrixConfigs: legacyInfo?.subgroupMatrixConfigs,
+    subgroupMatrixConfigs: legacyInfo?.subgroupMatrixConfigs || [],
   };
 
-  // ORT 1.30 的 WebGPU glue 直接读取 adapter.info。Proxy 同时保留原生
-  // GPUAdapter 作为方法接收者，避免旧浏览器的 WebIDL brand check 失败。
+  const normalizeDevice = (device) => {
+    try {
+      if (!device.adapterInfo) {
+        Object.defineProperty(device, "adapterInfo", { configurable: true, value: info });
+      }
+      if (device.adapterInfo) return device;
+    } catch (_) {
+      // 某些 Chromium 版本的 GPUDevice 不可扩展，使用代理补齐只读信息。
+    }
+    return new Proxy(device, {
+      has(target, property) {
+        if (property === "adapterInfo") return true;
+        return Reflect.has(target, property);
+      },
+      get(target, property) {
+        if (property === "adapterInfo") return info;
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  };
+
+  // ORT 1.30 同时读取 adapter.info 和 requestDevice() 返回对象的 adapterInfo。
+  // Proxy 保留原生对象作为 WebIDL 方法接收者，并兼容尚未实现新字段的 Chromium。
   return new Proxy(adapter, {
     get(target, property) {
       if (property === "info") return info;
+      if (property === "requestDevice") {
+        return async (...args) => normalizeDevice(await target.requestDevice(...args));
+      }
       const value = Reflect.get(target, property, target);
       return typeof value === "function" ? value.bind(target) : value;
     },
