@@ -3,6 +3,7 @@ dist/
 .vite/
 *.log
 启动网页版.bat
+Packages/realesrgan_x4_fp16.onnx
 
 # 本地工具数据与测试产物，不入库
 .workbuddy/

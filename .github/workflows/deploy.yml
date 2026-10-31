@@ -35,6 +35,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download AI model
+        shell: bash
+        run: |
+          mkdir -p Packages
+          MODEL_PATH="Packages/realesrgan_x4_fp16.onnx"
+          MODEL_SHA256="fac162a2204f34e22df0912dd2bf2ee127c10c1ac5aadccdd1b5a012a0050d04"
+          MIRROR_URL="https://hf-mirror.com/yizhiwangyue/PicCave-assets/resolve/main/realesrgan_x4_fp16.onnx"
+          OFFICIAL_URL="https://huggingface.co/yizhiwangyue/PicCave-assets/resolve/main/realesrgan_x4_fp16.onnx"
+          download_and_verify() {
+            curl --fail --location --retry 3 --retry-delay 2 --output "$MODEL_PATH" "$1" \
+              && echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum --check --status
+          }
+          download_and_verify "$MIRROR_URL" \
+            || { rm -f "$MODEL_PATH"; download_and_verify "$OFFICIAL_URL"; }
+
       - name: Build
         run: npm run build
 

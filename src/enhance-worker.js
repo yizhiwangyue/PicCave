@@ -1,14 +1,13 @@
 import * as ortWebgpu from "onnxruntime-web/webgpu";
 import webgpuWasmUrl from "../Packages/ort-wasm-simd-threaded.asyncify.wasm?url";
-
-const modelUrl = "https://hf-mirror.com/yizhiwangyue/PicCave-assets/resolve/main/realesrgan_x4_fp16.onnx";
+import modelUrl from "../Packages/realesrgan_x4_fp16.onnx?url";
 
 const MODEL_SCALE = 4;
 const TILE_PAD = 32;
 const MAX_OUTPUT_PIXELS = 64_000_000;
 const ASSET_CACHE_NAME = "piccave-ai-assets-v1";
 const MODEL_DOWNLOAD_BYTES = 35_331_831;
-const WASM_DOWNLOAD_BYTES = 6_791_325;
+const WASM_DOWNLOAD_BYTES = 26_781_914;
 
 const wasmThreads = self.crossOriginIsolated
   ? Math.min(4, Math.max(1, Math.ceil((self.navigator.hardwareConcurrency || 2) / 2)))
