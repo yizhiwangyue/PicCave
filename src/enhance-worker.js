@@ -19,6 +19,10 @@ ortWebgpu.env.webgpu.powerPreference = "high-performance";
 let sessionPromise = null;
 const engine = "WebGPU";
 const activeRuntime = ortWebgpu;
+const normalizedAdapters = new WeakMap();
+const normalizedDevices = new WeakMap();
+const deviceAdapterInfo = new WeakMap();
+let webGpuCompatibilityInstalled = false;
 
 function progress(id, value, label) {
   self.postMessage({ type: "progress", id, value, label });
@@ -98,7 +102,15 @@ function errorMessage(error) {
 }
 
 async function normalizeWebGpuAdapter(adapter) {
-  let legacyInfo = adapter.info;
+  const cachedAdapter = normalizedAdapters.get(adapter);
+  if (cachedAdapter) return cachedAdapter;
+
+  let legacyInfo;
+  try {
+    legacyInfo = adapter.info;
+  } catch (_) {
+    // 旧版 Chromium 的 info getter 可能存在但不可读取。
+  }
   if (typeof adapter.requestAdapterInfo === "function") {
     try {
       legacyInfo ||= await adapter.requestAdapterInfo();
@@ -118,15 +130,30 @@ async function normalizeWebGpuAdapter(adapter) {
   };
 
   const normalizeDevice = (device) => {
+    const cachedDevice = normalizedDevices.get(device);
+    if (cachedDevice) return cachedDevice;
+    deviceAdapterInfo.set(device, info);
+
     try {
+      const prototype = Object.getPrototypeOf(device);
+      const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, "adapterInfo");
+      if (prototype && (!descriptor || descriptor.configurable)) {
+        Object.defineProperty(prototype, "adapterInfo", {
+          configurable: true,
+          get() { return deviceAdapterInfo.get(this) || info; },
+        });
+      }
       if (!device.adapterInfo) {
         Object.defineProperty(device, "adapterInfo", { configurable: true, value: info });
       }
-      if (device.adapterInfo) return device;
+      if (device.adapterInfo) {
+        normalizedDevices.set(device, device);
+        return device;
+      }
     } catch (_) {
       // 某些 Chromium 版本的 GPUDevice 不可扩展，使用代理补齐只读信息。
     }
-    return new Proxy(device, {
+    const proxy = new Proxy(device, {
       has(target, property) {
         if (property === "adapterInfo") return true;
         return Reflect.has(target, property);
@@ -137,11 +164,14 @@ async function normalizeWebGpuAdapter(adapter) {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
+    normalizedDevices.set(device, proxy);
+    normalizedDevices.set(proxy, proxy);
+    return proxy;
   };
 
   // ORT 1.30 同时读取 adapter.info 和 requestDevice() 返回对象的 adapterInfo。
   // Proxy 保留原生对象作为 WebIDL 方法接收者，并兼容尚未实现新字段的 Chromium。
-  return new Proxy(adapter, {
+  const proxy = new Proxy(adapter, {
     get(target, property) {
       if (property === "info") return info;
       if (property === "requestDevice") {
@@ -151,10 +181,42 @@ async function normalizeWebGpuAdapter(adapter) {
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
+  normalizedAdapters.set(adapter, proxy);
+  normalizedAdapters.set(proxy, proxy);
+  return proxy;
+}
+
+function installWebGpuCompatibility() {
+  if (webGpuCompatibilityInstalled || !self.navigator.gpu) return;
+  webGpuCompatibilityInstalled = true;
+  const gpu = self.navigator.gpu;
+  const nativeRequestAdapter = gpu.requestAdapter.bind(gpu);
+  const requestCompatibleAdapter = async (...args) => {
+    const adapter = await nativeRequestAdapter(...args);
+    return adapter ? normalizeWebGpuAdapter(adapter) : adapter;
+  };
+
+  try {
+    Object.defineProperty(gpu, "requestAdapter", {
+      configurable: true,
+      value: requestCompatibleAdapter,
+    });
+  } catch (_) {
+    try {
+      const prototype = Object.getPrototypeOf(gpu);
+      Object.defineProperty(prototype, "requestAdapter", {
+        configurable: true,
+        value: requestCompatibleAdapter,
+      });
+    } catch (_) {
+      // 无法改写工厂时仍使用 env.webgpu.adapter 的兼容代理。
+    }
+  }
 }
 
 async function availableWebGpuAdapter() {
   if (!self.navigator.gpu) return { adapter: null, reason: "当前浏览器未提供 WebGPU，请更新浏览器并检查硬件加速设置" };
+  installWebGpuCompatibility();
   let timeout;
   try {
     const adapter = await Promise.race([
